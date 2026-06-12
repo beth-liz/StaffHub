@@ -68,7 +68,8 @@ export const getEmployees = async (req, res, next) => {
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
-        .populate('reportingManager', 'firstName lastName name employeeId'),
+        .populate('reportingManager', 'firstName lastName name employeeId')
+        .lean(),
       Employee.countDocuments(query),
     ]);
 
@@ -502,7 +503,7 @@ export const getStats = async (req, res, next) => {
       { $sort: { count: -1 } },
     ]);
 
-    const recentEmployees = await Employee.find().sort('-createdAt').limit(5);
+    const recentEmployees = await Employee.find().sort('-createdAt').limit(5).lean();
 
     res.status(200).json({
       success: true,

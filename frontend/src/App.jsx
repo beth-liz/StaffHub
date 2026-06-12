@@ -21,6 +21,7 @@ import LeaveHistory from './pages/LeaveHistory';
 import Notifications from './pages/Notifications';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
+import AICommandHistory from './pages/AICommandHistory';
 import NotFound from './pages/NotFound';
 
 function App() {
@@ -153,6 +154,18 @@ function App() {
                   <ProtectedRoute allowedRoles={['Admin']}>
                     <MainLayout>
                       <AuditLogs />
+                    </MainLayout>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* AI Command Logs — Admin only */}
+              <Route
+                path="/ai-history"
+                element={
+                  <ProtectedRoute allowedRoles={['Admin']}>
+                    <MainLayout>
+                      <AICommandHistory />
                     </MainLayout>
                   </ProtectedRoute>
                 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getNotifications } from '../services/api';
 import { 
@@ -17,13 +17,14 @@ import {
   Settings,
   ShieldCheck,
   Moon,
-  Sun
+  Sun,
+  Cpu
 } from 'lucide-react';
+import AIAssistant from '../components/AIAssistant';
 
 const MainLayout = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -62,7 +63,7 @@ const MainLayout = ({ children }) => {
       const interval = setInterval(fetchUnreadCount, 30000);
       return () => clearInterval(interval);
     }
-  }, [user, location.pathname]);
+  }, [user]);
 
   const handleLogoutClick = () => {
     logout();
@@ -96,6 +97,7 @@ const MainLayout = ({ children }) => {
         { name: 'Employee Directory', path: '/employees', icon: Users },
         { name: 'Leave Approvals', path: '/leaves', icon: History },
         { name: 'System Logs', path: '/audit-logs', icon: ShieldCheck },
+        { name: 'AI Assistant Logs', path: '/ai-history', icon: Cpu },
         { name: 'Notifications', path: '/notifications', icon: Bell, badge: true },
         { name: 'Portal Settings', path: '/settings', icon: Settings },
       ]
@@ -296,6 +298,7 @@ const MainLayout = ({ children }) => {
           {children}
         </main>
       </div>
+      <AIAssistant />
     </div>
   );
 };

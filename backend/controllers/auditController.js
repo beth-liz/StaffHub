@@ -22,7 +22,8 @@ export const getAuditLogs = async (req, res, next) => {
         .skip(skip)
         .limit(limitNum)
         .populate('performedBy', 'firstName lastName name employeeId email')
-        .populate('targetUser', 'firstName lastName name employeeId email'),
+        .populate('targetUser', 'firstName lastName name employeeId email')
+        .lean(),
       AuditLog.countDocuments(query),
     ]);
 

@@ -2,6 +2,38 @@ import Employee from '../models/Employee.js';
 import LeaveRequest from '../models/LeaveRequest.js';
 import LeaveBalance from '../models/LeaveBalance.js';
 import Notification from '../models/Notification.js';
+import logger from '../config/logger.js';
+
+// ─── Default safe values returned when a DB query fails ─────────────────────
+const ADMIN_DEFAULTS = {
+  metrics: {
+    totalEmployees: 0,
+    activeEmployees: 0,
+    employeesOnLeaveToday: 0,
+    pendingLeaveRequests: 0,
+    totalDepartments: 0,
+    newJoinersThisMonth: 0,
+  },
+  charts: {
+    departmentDistribution: [],
+    monthlyHiringTrend: [],
+    leaveStatistics: { Pending: 0, Approved: 0, Rejected: 0, 'Clarification Required': 0 },
+  },
+  tables: {
+    recentEmployees: [],
+    recentLeaveRequests: [],
+  },
+};
+
+// Helper: safely run a DB query and return a default value on failure
+const safeQuery = async (queryFn, fallback, label = 'query') => {
+  try {
+    return await queryFn();
+  } catch (err) {
+    logger.warn(`[DASHBOARD] ${label} failed: ${err.message}`);
+    return fallback;
+  }
+};
 
 // @desc    Get dashboard metrics based on role
 // @route   GET /api/dashboard
@@ -14,101 +46,104 @@ export const getDashboardData = async (req, res, next) => {
     todayEnd.setHours(23, 59, 59, 999);
 
     if (req.user.role === 'Admin') {
-      // ─── ADMIN DASHBOARD METRICS ───────────────────────────────────────────
-
-      // 1. Total Employees
-      const totalEmployees = await Employee.countDocuments();
-
-      // 2. Active Employees
-      const activeEmployees = await Employee.countDocuments({ status: 'Active' });
-
-      // 3. Employees on Leave Today
-      const employeesOnLeaveToday = await LeaveRequest.countDocuments({
-        status: 'Approved',
-        startDate: { $lte: todayEnd },
-        endDate: { $gte: todayStart },
-      });
-
-      // 4. Pending Leave Requests
-      const pendingLeaveRequests = await LeaveRequest.countDocuments({ status: 'Pending' });
-
-      // 5. Unique Departments count & list
-      const departmentsList = await Employee.distinct('department');
-      const totalDepartments = departmentsList.length;
-
-      // 6. New Joiners This Month
+      // ─── ADMIN DASHBOARD — all queries run in parallel, each safely ──────
       const firstDayOfMonth = new Date();
       firstDayOfMonth.setDate(1);
       firstDayOfMonth.setHours(0, 0, 0, 0);
-      const newJoinersThisMonth = await Employee.countDocuments({
-        dateOfJoining: { $gte: firstDayOfMonth },
-      });
 
-      // ─── CHARTS DATA ───
-
-      // A. Department Distribution
-      const departmentDistribution = await Employee.aggregate([
-        { $group: { _id: '$department', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]);
-
-      // B. Monthly Hiring Trend (Last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
       sixMonthsAgo.setDate(1);
       sixMonthsAgo.setHours(0, 0, 0, 0);
 
-      const hiringTrendRaw = await Employee.aggregate([
-        { $match: { dateOfJoining: { $gte: sixMonthsAgo } } },
-        {
-          $group: {
-            _id: {
-              year: { $year: '$dateOfJoining' },
-              month: { $month: '$dateOfJoining' },
+      const [
+        totalEmployees,
+        activeEmployees,
+        employeesOnLeaveToday,
+        pendingLeaveRequests,
+        departmentsList,
+        newJoinersThisMonth,
+        departmentDistribution,
+        hiringTrendRaw,
+        leaveStatsRaw,
+        recentEmployees,
+        recentLeaveRequests,
+      ] = await Promise.all([
+        safeQuery(() => Employee.countDocuments(), 0, 'totalEmployees'),
+        safeQuery(() => Employee.countDocuments({ status: 'Active' }), 0, 'activeEmployees'),
+        safeQuery(
+          () => LeaveRequest.countDocuments({
+            status: 'Approved',
+            startDate: { $lte: todayEnd },
+            endDate: { $gte: todayStart },
+          }),
+          0,
+          'employeesOnLeaveToday'
+        ),
+        safeQuery(() => LeaveRequest.countDocuments({ status: 'Pending' }), 0, 'pendingLeaves'),
+        safeQuery(() => Employee.distinct('department'), [], 'departmentsList'),
+        safeQuery(
+          () => Employee.countDocuments({ dateOfJoining: { $gte: firstDayOfMonth } }),
+          0,
+          'newJoiners'
+        ),
+        safeQuery(
+          () => Employee.aggregate([
+            { $group: { _id: '$department', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+          ]),
+          [],
+          'deptDistribution'
+        ),
+        safeQuery(
+          () => Employee.aggregate([
+            { $match: { dateOfJoining: { $gte: sixMonthsAgo } } },
+            {
+              $group: {
+                _id: { year: { $year: '$dateOfJoining' }, month: { $month: '$dateOfJoining' } },
+                count: { $sum: 1 },
+              },
             },
-            count: { $sum: 1 },
-          },
-        },
-        { $sort: { '_id.year': 1, '_id.month': 1 } },
+            { $sort: { '_id.year': 1, '_id.month': 1 } },
+          ]),
+          [],
+          'hiringTrend'
+        ),
+        safeQuery(
+          () => LeaveRequest.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+          [],
+          'leaveStats'
+        ),
+        safeQuery(
+          () => Employee.find()
+            .sort('-createdAt')
+            .limit(5)
+            .select('employeeId name firstName lastName department designation status profilePhoto')
+            .lean(),
+          [],
+          'recentEmployees'
+        ),
+        safeQuery(
+          () => LeaveRequest.find()
+            .sort('-createdAt')
+            .limit(5)
+            .select('employeeName leaveType startDate endDate status totalDays')
+            .lean(),
+          [],
+          'recentLeaves'
+        ),
       ]);
 
-      // Map raw trend aggregation to monthly names
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const monthlyHiringTrend = hiringTrendRaw.map((item) => ({
         month: `${months[item._id.month - 1]} ${item._id.year}`,
         count: item.count,
       }));
 
-      // C. Leave Statistics (Grouped by Status)
-      const leaveStatsRaw = await LeaveRequest.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-      ]);
-
-      const leaveStatistics = {
-        Pending: 0,
-        Approved: 0,
-        Rejected: 0,
-        'Clarification Required': 0,
-      };
+      const leaveStatistics = { Pending: 0, Approved: 0, Rejected: 0, 'Clarification Required': 0 };
       leaveStatsRaw.forEach((item) => {
-        if (item._id in leaveStatistics) {
-          leaveStatistics[item._id] = item.count;
-        }
+        if (item._id in leaveStatistics) leaveStatistics[item._id] = item.count;
       });
-
-      // ─── TABLES DATA ───
-
-      // I. Recent Employees (limit 5)
-      const recentEmployees = await Employee.find()
-        .sort('-createdAt')
-        .limit(5)
-        .select('employeeId name firstName lastName department designation status profilePhoto');
-
-      // II. Recent Leave Requests (limit 5)
-      const recentLeaveRequests = await LeaveRequest.find()
-        .sort('-createdAt')
-        .limit(5)
-        .select('employeeName leaveType startDate endDate status totalDays');
 
       return res.status(200).json({
         success: true,
@@ -118,51 +153,66 @@ export const getDashboardData = async (req, res, next) => {
             activeEmployees,
             employeesOnLeaveToday,
             pendingLeaveRequests,
-            totalDepartments,
+            totalDepartments: departmentsList.length,
             newJoinersThisMonth,
           },
           charts: {
             departmentDistribution: departmentDistribution.map((d) => ({
-              name: d._id,
+              name: d._id || 'Unknown',
               count: d.count,
             })),
             monthlyHiringTrend,
             leaveStatistics,
           },
-          tables: {
-            recentEmployees,
-            recentLeaveRequests,
-          },
+          tables: { recentEmployees, recentLeaveRequests },
         },
       });
     } else {
-      // ─── EMPLOYEE DASHBOARD METRICS ────────────────────────────────────────
+      // ─── EMPLOYEE DASHBOARD ───────────────────────────────────────────────
 
-      // 1. Employee Leave Balances
-      let leaveBalance = await LeaveBalance.findOne({ employeeId: req.user.id });
+      // Ensure leave balance exists
+      let leaveBalance = await safeQuery(
+        () => LeaveBalance.findOne({ employeeId: req.user.id }).lean(),
+        null,
+        'leaveBalance'
+      );
+
       if (!leaveBalance) {
-        leaveBalance = await LeaveBalance.create({ employeeId: req.user.id });
+        try {
+          leaveBalance = await LeaveBalance.create({ employeeId: req.user.id });
+        } catch (_) {
+          leaveBalance = { casualLeave: 0, sickLeave: 0, earnedLeave: 0 };
+        }
       }
 
-      // 2. Personal Leave Requests Count by Status
-      const leaveRequests = await LeaveRequest.find({ employeeId: req.user.id });
+      const [leaveRequests, upcomingLeaves, recentNotifications] = await Promise.all([
+        safeQuery(
+          () => LeaveRequest.find({ employeeId: req.user.id }).lean(),
+          [],
+          'leaveRequests'
+        ),
+        safeQuery(
+          () => LeaveRequest.find({
+            employeeId: req.user.id,
+            status: 'Approved',
+            startDate: { $gte: todayStart },
+          }).sort('startDate').limit(5).lean(),
+          [],
+          'upcomingLeaves'
+        ),
+        safeQuery(
+          () => Notification.find({ recipient: req.user.id })
+            .sort('-createdAt')
+            .limit(5)
+            .lean(),
+          [],
+          'notifications'
+        ),
+      ]);
+
       const pendingLeaves = leaveRequests.filter((r) => r.status === 'Pending').length;
       const approvedLeaves = leaveRequests.filter((r) => r.status === 'Approved').length;
       const rejectedLeaves = leaveRequests.filter((r) => r.status === 'Rejected').length;
-
-      // 3. Upcoming Leave Schedule (Approved, starting from today onwards)
-      const upcomingLeaves = await LeaveRequest.find({
-        employeeId: req.user.id,
-        status: 'Approved',
-        startDate: { $gte: todayStart },
-      })
-        .sort('startDate')
-        .limit(5);
-
-      // 4. Recent Notifications (limit 5)
-      const recentNotifications = await Notification.find({ recipient: req.user.id })
-        .sort('-createdAt')
-        .limit(5);
 
       return res.status(200).json({
         success: true,
@@ -181,22 +231,22 @@ export const getDashboardData = async (req, res, next) => {
             status: req.user.status,
           },
           leaveBalances: {
-            casualLeave: leaveBalance.casualLeave,
-            sickLeave: leaveBalance.sickLeave,
-            earnedLeave: leaveBalance.earnedLeave,
-            totalLeaveBalance: leaveBalance.casualLeave + leaveBalance.sickLeave + leaveBalance.earnedLeave,
+            casualLeave: leaveBalance.casualLeave ?? 0,
+            sickLeave: leaveBalance.sickLeave ?? 0,
+            earnedLeave: leaveBalance.earnedLeave ?? 0,
+            totalLeaveBalance:
+              (leaveBalance.casualLeave ?? 0) +
+              (leaveBalance.sickLeave ?? 0) +
+              (leaveBalance.earnedLeave ?? 0),
           },
-          leaveStats: {
-            pendingLeaves,
-            approvedLeaves,
-            rejectedLeaves,
-          },
+          leaveStats: { pendingLeaves, approvedLeaves, rejectedLeaves },
           upcomingLeaves,
           recentNotifications,
         },
       });
     }
   } catch (error) {
+    logger.error(`[DASHBOARD] Unexpected error: ${error.message}`, { stack: error.stack });
     next(error);
   }
 };

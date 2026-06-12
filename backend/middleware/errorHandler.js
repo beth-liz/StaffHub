@@ -1,9 +1,15 @@
+import logger from '../config/logger.js';
+
 const errorHandler = (err, req, res, next) => {
-  console.error('Error stack:', err.stack);
+  // Log the full error to the log files
+  logger.error(`${req.method} ${req.originalUrl} — ${err.message}`, {
+    stack: err.stack,
+    statusCode: res.statusCode,
+  });
 
   let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   let message = err.message;
-  let errors = null;
+  let errors = err.errors || null;
 
   // Handle Mongoose Validation Error
   if (err.name === 'ValidationError') {
@@ -16,13 +22,24 @@ const errorHandler = (err, req, res, next) => {
   if (err.code === 11000) {
     statusCode = 400;
     const field = Object.keys(err.keyValue)[0];
-    message = `Duplicate field value entered: ${field}. Please use another value.`;
+    message = `Duplicate value for field: ${field}. Please use a different value.`;
   }
 
-  // Handle Mongoose Cast Error (invalid ID)
+  // Handle Mongoose Cast Error (invalid ObjectId)
   if (err.name === 'CastError') {
     statusCode = 404;
-    message = `Resource not found with id of ${err.value}`;
+    message = `Resource not found — invalid ID format: ${err.value}`;
+  }
+
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    statusCode = 401;
+    message = 'Invalid token. Please log in again.';
+  }
+
+  if (err.name === 'TokenExpiredError') {
+    statusCode = 401;
+    message = 'Your session has expired. Please log in again.';
   }
 
   res.status(statusCode).json({

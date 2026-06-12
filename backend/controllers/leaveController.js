@@ -152,7 +152,7 @@ export const getLeaves = async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     const [leaves, total] = await Promise.all([
-      LeaveRequest.find(query).sort('-createdAt').skip(skip).limit(limitNum),
+      LeaveRequest.find(query).sort('-createdAt').skip(skip).limit(limitNum).lean(),
       LeaveRequest.countDocuments(query),
     ]);
 

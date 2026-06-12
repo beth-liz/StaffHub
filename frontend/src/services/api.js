@@ -4,13 +4,14 @@ import toast from 'react-hot-toast';
 // Backend URL — set VITE_API_URL in frontend .env to override
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+// ─── Axios Instance ──────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 });
 
-// ─── Request interceptor ────────────────────────────────────────────────────
+// ─── Request interceptor — attach JWT token ──────────────────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -22,47 +23,71 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// ─── Network error toast throttle (once per 5 seconds) ──────────────────────
 let lastNetworkErrorToast = 0;
 const NETWORK_ERROR_COOLDOWN = 5000;
 
-// ─── Response interceptor — normalise server errors ─────────────────────────
+// ─── Response interceptor — normalise errors ─────────────────────────────────
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      // Server responded with a non-2xx status
+      // Server replied with a non-2xx status
       const { status, data } = error.response;
-      const message =
+      error.displayMessage =
         data?.message ||
         data?.errors?.join(', ') ||
         `Request failed with status ${status}`;
-      error.displayMessage = message;
-      
-      // Auto-logout on token expiration / unauthorized
+
+      // Auto-logout on token expiry / invalid token
       if (status === 401 && localStorage.getItem('token')) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/login';
       }
     } else if (error.request) {
-      // Request was made but no response received (network error / server down)
-      error.displayMessage =
-        'Cannot reach the server. Make sure the backend is running.';
+      // No response received — server down or network issue
+      error.displayMessage = 'Cannot reach the server. Make sure the backend is running.';
       error.isNetworkError = true;
 
       const now = Date.now();
       if (now - lastNetworkErrorToast > NETWORK_ERROR_COOLDOWN) {
         lastNetworkErrorToast = now;
-        toast.error(error.displayMessage, { id: 'network-error-toast' });
+        toast.error(error.displayMessage, { id: 'network-error-toast', duration: 4000 });
       }
     } else {
       error.displayMessage = error.message;
     }
+
     return Promise.reject(error);
   }
 );
 
-// ─── Auth API Services ──────────────────────────────────────────────────────
+// ─── Retry helper with exponential backoff ────────────────────────────────────
+// Retries a function up to `maxAttempts` times with increasing delays.
+// Delays: 1s → 3s → 5s before giving up and propagating the error.
+const RETRY_DELAYS = [1000, 3000, 5000];
+
+const withRetry = async (fn, maxAttempts = 3) => {
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      // Only retry on genuine network errors, not 4xx/5xx responses
+      if (!err.isNetworkError) throw err;
+
+      const delay = RETRY_DELAYS[attempt];
+      if (delay && attempt < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
+// ─── Auth API Services ────────────────────────────────────────────────────────
 export const loginUser = async (credentials) => {
   const response = await api.post('/auth/login', credentials);
   return response.data;
@@ -93,7 +118,7 @@ export const getCurrentUser = async () => {
   return response.data;
 };
 
-// ─── Employee CRUD ──────────────────────────────────────────────────────────
+// ─── Employee CRUD ────────────────────────────────────────────────────────────
 export const getEmployees = async (params = {}) => {
   const response = await api.get('/employees', { params });
   return response.data;
@@ -119,7 +144,7 @@ export const deleteEmployee = async (id) => {
   return response.data;
 };
 
-// ─── Avatar Upload ──────────────────────────────────────────────────────────
+// ─── Avatar Upload ────────────────────────────────────────────────────────────
 export const uploadAvatar = async (id, file) => {
   const formData = new FormData();
   formData.append('avatar', file);
@@ -129,7 +154,7 @@ export const uploadAvatar = async (id, file) => {
   return response.data;
 };
 
-// ─── Export to Excel ────────────────────────────────────────────────────────
+// ─── Export to Excel ──────────────────────────────────────────────────────────
 export const exportEmployees = async (params = {}) => {
   const response = await api.get('/employees/export', {
     params,
@@ -154,9 +179,9 @@ export const exportEmployees = async (params = {}) => {
   window.URL.revokeObjectURL(url);
 };
 
-// ─── Dashboard Services ─────────────────────────────────────────────────────
+// ─── Dashboard Services ───────────────────────────────────────────────────────
 export const getDashboardData = async () => {
-  const response = await api.get('/dashboard');
+  const response = await withRetry(() => api.get('/dashboard'));
   return response.data;
 };
 
@@ -165,11 +190,12 @@ export const getStats = async () => {
   return response.data;
 };
 
-// ─── Leave Management Services ──────────────────────────────────────────────
+// ─── Leave Management Services ────────────────────────────────────────────────
+// IMPORTANT: Leave form is JSON-only (no file attachments in current schema).
+// Previously this was incorrectly set to multipart/form-data which caused
+// Multer to consume req.body before the controller could read fields.
 export const applyLeaveRequest = async (formData) => {
-  const response = await api.post('/leaves', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const response = await api.post('/leaves', formData); // JSON — no Content-Type override needed
   return response.data;
 };
 
@@ -189,7 +215,7 @@ export const updateLeaveStatus = async (id, statusData) => {
   return response.data;
 };
 
-// ─── Notification Services ──────────────────────────────────────────────────
+// ─── Notification Services ────────────────────────────────────────────────────
 export const getNotifications = async () => {
   const response = await api.get('/notifications');
   return response.data;
@@ -205,9 +231,26 @@ export const markAllNotificationsAsRead = async () => {
   return response.data;
 };
 
-// ─── Audit Log Services ─────────────────────────────────────────────────────
+// ─── Audit Log Services ───────────────────────────────────────────────────────
 export const fetchAuditLogs = async (params = {}) => {
   const response = await api.get('/audit-logs', { params });
+  return response.data;
+};
+
+// ─── AI Assistant Services ────────────────────────────────────────────────────
+export const sendAICommand = async (payload) => {
+  const response = await api.post('/ai/command', payload);
+  return response.data;
+};
+
+export const fetchAILogs = async (params = {}) => {
+  const response = await api.get('/ai/logs', { params });
+  return response.data;
+};
+
+// ─── Health Check ─────────────────────────────────────────────────────────────
+export const checkHealth = async () => {
+  const response = await api.get('/health');
   return response.data;
 };
 
