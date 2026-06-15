@@ -16,6 +16,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import auditRoutes from './routes/auditRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import { runStartupDiagnostics } from './services/openaiService.js';
 import errorHandler from './middleware/errorHandler.js';
 
 // ─── Load & Validate ENV ─────────────────────────────────────────────────────
@@ -39,6 +40,10 @@ const __dirname = path.dirname(__filename);
 
 // ─── Connect to MongoDB ───────────────────────────────────────────────────────
 connectDB();
+
+// ─── AI Startup Diagnostics ──────────────────────────────────────────────────
+// Run non-blocking after a short delay to allow DB to initialize first
+setTimeout(() => runStartupDiagnostics().catch(() => {}), 3000);
 
 const app = express();
 

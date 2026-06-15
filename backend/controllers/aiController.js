@@ -1,7 +1,9 @@
 import AIInteractionLog from '../models/AIInteractionLog.js';
 import { runOpenAIChat } from '../services/openaiService.js';
 
-// @desc    Process a voice or text command using AI assistant
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+// @desc    Process a voice or text AI command
 // @route   POST /api/ai/command
 // @access  Private
 export const handleAICommand = async (req, res, next) => {
@@ -13,20 +15,39 @@ export const handleAICommand = async (req, res, next) => {
       throw new Error('Please provide a command transcript string.');
     }
 
-    // Call OpenAI service to parse, execute tools, and generate response
+    console.log(`\n[AI Request] User: ${req.user.name} (${req.user.role})`);
+    console.log(`[AI Request] Command: "${command.trim()}"`);
+
+    // Call the service (Groq → local fallback)
     const result = await runOpenAIChat({
       command: command.trim(),
       history: history || [],
       user: req.user,
     });
 
+    console.log(`[AI Response] Provider: ${result.provider || 'unknown'} | Intent: ${result.intent}`);
+    console.log(`[AI Response] Speech: "${result.speechResponse}"`);
+    if (result.action) {
+      console.log(`[AI Response] Action: ${result.action} → ${result.path}`);
+    }
+
     res.status(200).json(result);
   } catch (error) {
-    next(error);
+    // Never expose raw provider errors to the client
+    console.error('[AI] handleAICommand error:', error.message);
+    res.status(200).json({
+      success: false,
+      provider: 'error',
+      intent: 'ERROR',
+      speechResponse: "I'm temporarily unable to reach the AI service. Please try again in a moment.",
+      action: null,
+      path: null,
+      history: req.body.history || []
+    });
   }
 };
 
-// @desc    Get AI interaction logs for analytics
+// @desc    Get AI interaction logs (Admin)
 // @route   GET /api/ai/logs
 // @access  Private (Admin only)
 export const getAILogs = async (req, res, next) => {
@@ -34,9 +55,7 @@ export const getAILogs = async (req, res, next) => {
     const { page = 1, limit = 10, status } = req.query;
 
     const query = {};
-    if (status) {
-      query.status = status;
-    }
+    if (status) query.status = status;
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
@@ -66,4 +85,45 @@ export const getAILogs = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+// @desc    AI provider health check
+// @route   GET /api/ai/health
+// @access  Public
+export const getAIHealth = async (_req, res) => {
+  const hasKey = !!process.env.GROQ_API_KEY;
+
+  if (hasKey) {
+    // Quick connectivity check
+    try {
+      const { default: OpenAI } = await import('openai');
+      const client = new OpenAI({
+        apiKey: process.env.GROQ_API_KEY,
+        baseURL: 'https://api.groq.com/openai/v1',
+      });
+
+      await client.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+      });
+
+      return res.status(200).json({
+        provider: 'groq',
+        status: 'ready',
+        model: GROQ_MODEL,
+      });
+    } catch (err) {
+      console.warn('[AI Health] Groq ping failed:', err.message);
+    }
+  }
+
+  return res.status(200).json({
+    provider: 'fallback',
+    status: 'ready',
+    model: null,
+    note: hasKey
+      ? 'Groq key is set but the service is unreachable. Local fallback is active.'
+      : 'GROQ_API_KEY is not configured. Running in local fallback mode only.'
+  });
 };

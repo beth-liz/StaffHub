@@ -155,7 +155,7 @@ const AIAssistant = () => {
     setIsSpeaking(false);
 
     try {
-      // Map existing messages to OpenAI backend message history structure
+      // Map existing messages to backend message history structure
       // Limit context to last 10 exchanges to keep requests lightweight
       const chatHistory = messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
