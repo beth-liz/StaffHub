@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { getCurrentUser } from '../services/api';
+import { getCurrentUser, clearAISession } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -51,6 +51,19 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);
+    try {
+      clearAISession().catch(e => console.error('Failed to clear AI session on server', e));
+    } catch (err) {
+      console.error(err);
+    }
+    
+    // Clear AI session storage
+    Object.keys(sessionStorage).forEach(key => {
+      if (key.startsWith('ai_chat_messages_')) {
+        sessionStorage.removeItem(key);
+      }
+    });
+
     setUser(null);
   };
 

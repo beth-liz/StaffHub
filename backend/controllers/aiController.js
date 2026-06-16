@@ -1,5 +1,6 @@
 import AIInteractionLog from '../models/AIInteractionLog.js';
 import { runOpenAIChat } from '../services/openaiService.js';
+import { clearSession } from '../services/aiSessionManager.js';
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
@@ -8,7 +9,7 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // @access  Private
 export const handleAICommand = async (req, res, next) => {
   try {
-    const { command, history } = req.body;
+    const { command } = req.body;
 
     if (!command || !command.trim()) {
       res.status(400);
@@ -21,7 +22,6 @@ export const handleAICommand = async (req, res, next) => {
     // Call the service (Groq → local fallback)
     const result = await runOpenAIChat({
       command: command.trim(),
-      history: history || [],
       user: req.user,
     });
 
@@ -42,8 +42,20 @@ export const handleAICommand = async (req, res, next) => {
       speechResponse: "I'm temporarily unable to reach the AI service. Please try again in a moment.",
       action: null,
       path: null,
-      history: req.body.history || []
+      listItems: null
     });
+  }
+};
+
+// @desc    Clear server-side AI session history
+// @route   POST /api/ai/clear-session
+// @access  Private
+export const clearAISession = async (req, res, next) => {
+  try {
+    clearSession(req.user.id);
+    res.status(200).json({ success: true, message: 'AI session history cleared.' });
+  } catch (error) {
+    next(error);
   }
 };
 

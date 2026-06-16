@@ -238,14 +238,31 @@ export const fetchAuditLogs = async (params = {}) => {
 };
 
 // ─── AI Assistant Services ────────────────────────────────────────────────────
-export const sendAICommand = async (payload) => {
-  const response = await api.post('/ai/command', payload);
-  return response.data;
-};
-
 export const fetchAILogs = async (params = {}) => {
   const response = await api.get('/ai/logs', { params });
   return response.data;
+};
+export const sendAICommand = async (command) => {
+  try {
+    const res = await api.post(
+      '/ai/command',
+      { command },
+      // AI commands might take longer (e.g. LLM + DB ops), extend timeout slightly
+      { timeout: 30000 }
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || err;
+  }
+};
+
+export const clearAISession = async () => {
+  try {
+    const res = await api.post('/ai/clear-session');
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || err;
+  }
 };
 
 // ─── Health Check ─────────────────────────────────────────────────────────────

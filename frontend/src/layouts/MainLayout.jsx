@@ -65,6 +65,24 @@ const MainLayout = ({ children }) => {
     }
   }, [user]);
 
+  // Listen for AI-triggered dark mode toggle
+  useEffect(() => {
+    const handleAIToggle = (e) => {
+      const { enabled } = e.detail;
+      setDarkMode(enabled);
+      if (enabled) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+      }
+    };
+    
+    window.addEventListener('staffhub:toggleDarkMode', handleAIToggle);
+    return () => window.removeEventListener('staffhub:toggleDarkMode', handleAIToggle);
+  }, []);
+
   const handleLogoutClick = () => {
     logout();
     navigate('/login');

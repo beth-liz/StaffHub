@@ -23,15 +23,8 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: [
-        'Leave Approved',
-        'Leave Rejected',
-        'Leave Clarification Requested',
-        'Profile Updated',
-        'Password Changed',
-        'New Leave Request',
-      ],
       required: true,
+      // Removed enum to allow dynamic AI-generated notification types
     },
   },
   {
