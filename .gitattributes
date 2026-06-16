@@ -1,0 +1,9 @@
+# Treat all .js files as React
+*.js linguist-language=React
+
+# Treat all .jsx files as React (if you use them)
+*.jsx linguist-language=React
+
+# Treat all .ts or .tsx files as React (if using TypeScript)
+*.tsx linguist-language=React
+*.ts linguist-language=React
