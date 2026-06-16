@@ -1,9 +1,10 @@
-# Treat all .js files as React
+# Force GitHub to detect your JS/JSX files as React
 *.js linguist-language=React
-
-# Treat all .jsx files as React (if you use them)
 *.jsx linguist-language=React
-
-# Treat all .ts or .tsx files as React (if using TypeScript)
-*.tsx linguist-language=React
 *.ts linguist-language=React
+*.tsx linguist-language=React
+
+# Tell GitHub to ignore CSS files when calculating the language percentages
+*.css linguist-vendored
+*.scss linguist-vendored
+*.html linguist-vendored
