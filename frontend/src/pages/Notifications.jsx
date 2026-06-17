@@ -12,6 +12,12 @@ const Notifications = () => {
     fetchNotifications();
   }, []);
 
+  useEffect(() => {
+    const handleRefresh = () => fetchNotifications();
+    window.addEventListener('staffhub:refreshData', handleRefresh);
+    return () => window.removeEventListener('staffhub:refreshData', handleRefresh);
+  }, []);
+
   const fetchNotifications = async () => {
     try {
       setLoading(true);
@@ -113,7 +119,7 @@ const Notifications = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {notifications.map((notif) => (
+            {notifications.map((notif, index) => (
               <div
                 key={notif._id}
                 onClick={() => !notif.isRead && handleMarkAsRead(notif._id)}
@@ -123,11 +129,12 @@ const Notifications = () => {
                     : 'bg-brand-50/20 dark:bg-brand-500/5 border-brand-100/30 dark:border-brand-500/10 hover:bg-brand-50/30 text-slate-800 dark:text-slate-200'
                 }`}
               >
-                <div className={`p-2.5 rounded-xl ${
+                <div className={`p-2.5 rounded-xl flex items-center justify-center ${
                   notif.isRead 
                     ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' 
                     : 'bg-brand-50 dark:bg-brand-500/10'
                 }`}>
+                  <span className="mr-2 text-brand-500 font-mono text-[10px] font-bold">#{index + 1}</span>
                   {getNotificationIcon(notif.type)}
                 </div>
 

@@ -21,6 +21,7 @@ export const getSession = (userId) => {
       history: [],       // { role: 'user'|'assistant', content: string }[]
       listContext: [],    // { number: 1, id: string, label: string, type: string }[]
       slotSession: null,  // active slot-filling session (local intent engine)
+      pendingAction: null, // pending review-mode action { type: 'leave'|'employee', data: {...} }
     });
   }
   return sessions.get(key);
@@ -88,6 +89,27 @@ export const getSlotSession = (userId) => {
  */
 export const clearSlotSession = (userId) => {
   getSession(userId).slotSession = null;
+};
+
+/**
+ * Set a pending action for review mode (leave/employee creation).
+ */
+export const setPendingAction = (userId, actionType, data) => {
+  getSession(userId).pendingAction = { type: actionType, data };
+};
+
+/**
+ * Get the pending action for review mode.
+ */
+export const getPendingAction = (userId) => {
+  return getSession(userId).pendingAction;
+};
+
+/**
+ * Clear the pending action.
+ */
+export const clearPendingAction = (userId) => {
+  getSession(userId).pendingAction = null;
 };
 
 /**

@@ -91,6 +91,12 @@ const EmployeeList = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, department, status, sort, page]);
 
+  useEffect(() => {
+    const handleRefresh = () => fetchEmployees();
+    window.addEventListener('staffhub:refreshData', handleRefresh);
+    return () => window.removeEventListener('staffhub:refreshData', handleRefresh);
+  }, []);
+
   const fetchEmployees = async () => {
     try {
       setLoading(true);
@@ -386,7 +392,7 @@ const EmployeeList = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800/40 text-xs">
-                  {employees.map((emp) => {
+                  {employees.map((emp, index) => {
                     const avatarSrc = emp.profilePhoto
                       ? `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}${emp.profilePhoto}`
                       : null;
@@ -399,6 +405,7 @@ const EmployeeList = () => {
                         {/* Name & Avatar */}
                         <td className="py-3.5 pl-6">
                           <div className="flex items-center gap-3">
+                            <span className="text-brand-500 font-mono text-[10px] font-bold">#{index + 1}</span>
                             {avatarSrc ? (
                               <img
                                 src={avatarSrc}

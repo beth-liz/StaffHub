@@ -41,6 +41,12 @@ const LeaveHistory = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, leaveType, status]);
 
+  useEffect(() => {
+    const handleRefresh = () => fetchLeaves();
+    window.addEventListener('staffhub:refreshData', handleRefresh);
+    return () => window.removeEventListener('staffhub:refreshData', handleRefresh);
+  }, []);
+
   const fetchLeaves = async () => {
     try {
       setLoading(true);
@@ -204,7 +210,7 @@ const LeaveHistory = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800/40 text-xs">
-                  {leaves.map((leave) => (
+                  {leaves.map((leave, index) => (
                     <tr 
                       key={leave._id} 
                       className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors ${
@@ -212,8 +218,13 @@ const LeaveHistory = () => {
                       }`}
                     >
                       <td className="py-4 pl-6 font-semibold text-slate-800 dark:text-slate-200">
-                        {leave.employeeName}
-                        <p className="text-[9px] text-slate-400 font-normal mt-0.5">{leave.department}</p>
+                        <div className="flex items-start gap-2">
+                          <span className="text-brand-500 font-mono mt-0.5">#{index + 1}</span>
+                          <div>
+                            {leave.employeeName}
+                            <p className="text-[9px] text-slate-400 font-normal mt-0.5">{leave.department}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="py-4 text-slate-500 dark:text-slate-400 font-medium">{leave.leaveType}</td>
                       <td className="py-4 text-slate-400">

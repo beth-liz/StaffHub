@@ -24,6 +24,12 @@ const AdminDashboard = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    const handleRefresh = () => fetchData();
+    window.addEventListener('staffhub:refreshData', handleRefresh);
+    return () => window.removeEventListener('staffhub:refreshData', handleRefresh);
+  }, []);
+
   const fetchData = async () => {
     try {
       setLoading(true);

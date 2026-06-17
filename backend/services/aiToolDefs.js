@@ -76,16 +76,22 @@ const sharedTools = [
     type: 'function',
     function: {
       name: 'markNotificationRead',
-      description: 'Mark a specific notification as read. Use the notification number from a previously listed set.',
+      description: 'Mark specific notification(s) as read. Identify notifications by their number from a previously listed set, or by description/title.',
       parameters: {
         type: 'object',
         properties: {
-          notificationNumber: {
-            type: 'integer',
-            description: 'The number of the notification from the previously displayed list.'
+          notificationNumbers: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'Array of notification numbers to mark as read.'
+          },
+          descriptions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of descriptions, titles, or keywords to identify the notifications.'
           }
         },
-        required: ['notificationNumber']
+        required: []
       }
     }
   },
@@ -104,6 +110,14 @@ const sharedTools = [
       description: 'Fetch and list all notifications for the current user with numbers for selection.',
       parameters: { type: 'object', properties: {} }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'performLogout',
+      description: 'Log the current user out of the system. Say a friendly goodbye before calling this.',
+      parameters: { type: 'object', properties: {} }
+    }
   }
 ];
 
@@ -113,14 +127,14 @@ const employeeTools = [
     type: 'function',
     function: {
       name: 'applyLeave',
-      description: 'Apply for a new leave request. Call ONLY when you have ALL of: leaveType, startDate, endDate, and reason. Otherwise ask clarifying questions first.',
+      description: 'Submit a leave application. You MUST have ALL 4 fields: leaveType, startDate, endDate, reason. If ANY field is missing, DO NOT call this tool — instead ASK the user for the missing information. NEVER auto-guess leaveType.',
       parameters: {
         type: 'object',
         properties: {
           leaveType: {
             type: 'string',
             enum: ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Work From Home', 'Emergency Leave', 'Loss Of Pay'],
-            description: 'The type of leave.'
+            description: 'The type of leave. NEVER guess this — always ask the user explicitly.'
           },
           startDate: {
             type: 'string',
@@ -155,7 +169,7 @@ const adminTools = [
     type: 'function',
     function: {
       name: 'createEmployee',
-      description: 'Create a new employee in the system. Requires firstName, lastName, email, phone (10 digits), department, and designation at minimum.',
+      description: 'Create a new employee record. Requires firstName, lastName, email, phone (10 digits), department, and designation.',
       parameters: {
         type: 'object',
         properties: {
@@ -293,14 +307,14 @@ const adminTools = [
     type: 'function',
     function: {
       name: 'applyLeave',
-      description: 'Apply for a new leave request. Call ONLY when you have ALL of: leaveType, startDate, endDate, and reason.',
+      description: 'Submit a leave application. You MUST have ALL 4 fields: leaveType, startDate, endDate, reason. If ANY field is missing, DO NOT call this tool — instead ASK the user. NEVER auto-guess leaveType.',
       parameters: {
         type: 'object',
         properties: {
           leaveType: {
             type: 'string',
             enum: ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Work From Home', 'Emergency Leave', 'Loss Of Pay'],
-            description: 'The type of leave.'
+            description: 'The type of leave. NEVER guess this.'
           },
           startDate: { type: 'string', description: 'Start date in YYYY-MM-DD.' },
           endDate: { type: 'string', description: 'End date in YYYY-MM-DD.' },

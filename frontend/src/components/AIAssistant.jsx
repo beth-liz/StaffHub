@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Loader2, X, MessageSquare, Volume2, VolumeX, ChevronDown, List } from 'lucide-react';
-import { sendAICommand } from '../services/api';
+import { Mic, MicOff, Loader2, X, MessageSquare, Volume2, VolumeX, ChevronDown, List, LogOut } from 'lucide-react';
+import { sendAICommand, clearAISession } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import toast from 'react-hot-toast';
 
 // Safe checking for Speech Recognition API
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 const AIAssistant = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   
   const [isOpen, setIsOpen] = useState(false);
@@ -116,8 +117,22 @@ const AIAssistant = () => {
       };
 
       recognition.onerror = (event) => {
-        console.error('Speech recognition error', event.error);
+        console.error('Speech recognition error:', event.error);
         setIsListening(false);
+        
+        // Handle specific errors gracefully
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          toast.error('Microphone access denied. Please allow microphone permissions in your browser settings.', { duration: 5000 });
+        } else if (event.error === 'network') {
+          toast.error('Speech recognition requires an internet connection.', { duration: 3000 });
+        } else if (event.error === 'aborted') {
+          // User or system aborted — silent
+        } else if (event.error === 'no-speech') {
+          // No speech detected — auto-restart if panel is open
+          if (isOpen) {
+            // Don't auto-restart, just inform
+          }
+        }
       };
 
       recognition.onend = () => {
@@ -133,7 +148,7 @@ const AIAssistant = () => {
       }
       synthRef?.cancel();
     };
-  }, [voiceEnabled, synthRef]);
+  }, [voiceEnabled, synthRef, isOpen]);
 
   // Process transcript when listening stops naturally
   useEffect(() => {
@@ -174,13 +189,41 @@ const AIAssistant = () => {
         navigate(res.path);
       } else if (res.action === 'TOGGLE_DARK_MODE') {
         const event = new CustomEvent('staffhub:toggleDarkMode', { 
-          detail: { enabled: !document.documentElement.classList.contains('dark') } // AI tool sends actual state in res.toolResult, but we can just invert here or rely on result if needed. Actually the tool sets it explicitly but the easiest way is checking the message or let backend dictate it. 
+          detail: { enabled: !document.documentElement.classList.contains('dark') } 
         });
         window.dispatchEvent(event);
       } else if (res.action === 'DOWNLOAD_EXCEL' && res.path) {
         // Trigger download
         const url = `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}${res.path}`;
         window.open(url, '_blank');
+      } else if (res.action === 'LOGOUT') {
+        // Formal logout workflow: Speak → Wait 3s → Clear → Redirect
+        const goodbyeMsg = res.speechResponse || `Goodbye ${user?.name}! See you next time.`;
+        speakText(goodbyeMsg);
+        
+        const aiMsg = {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: goodbyeMsg,
+          timestamp: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        setIsProcessing(false);
+        
+        toast.success('Logging you out...', { duration: 3000, icon: '👋' });
+        
+        // Wait 3 seconds for speech to finish, then logout
+        setTimeout(() => {
+          synthRef?.cancel();
+          logout();
+          navigate('/login');
+        }, 3000);
+        return; // Early return — don't add message twice
+      }
+
+      // Always dispatch a global refresh event after any successful AI action
+      if (res.success || res.action) {
+        window.dispatchEvent(new Event('staffhub:refreshData'));
       }
 
       // Add AI response message

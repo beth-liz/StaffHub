@@ -13,7 +13,7 @@ import Employee from '../models/Employee.js';
 import Notification from '../models/Notification.js';
 import AuditLog from '../models/AuditLog.js';
 import AIInteractionLog from '../models/AIInteractionLog.js';
-import { getListItemByNumber, setListContext } from './aiSessionManager.js';
+import { getListItemByNumber, setListContext, setPendingAction, getPendingAction, clearPendingAction } from './aiSessionManager.js';
 
 // ─── Leave Balance Helper ─────────────────────────────────────────────────────
 const getBalanceField = (leaveType) => {
@@ -120,7 +120,100 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
   try {
     switch (functionName) {
 
-      // ─── APPLY LEAVE ──────────────────────────────────────────────────────
+      // ─── PREPARE LEAVE APPLICATION (Review Mode) ────────────────────────
+      case 'prepareLeaveApplication': {
+        const { leaveType, startDate, endDate, reason } = functionArgs;
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (end < start) throw new Error('End date cannot be before the start date.');
+        if (start < today) throw new Error('Start date cannot be in the past.');
+
+        const totalDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+        const overlap = await LeaveRequest.findOne({
+          employeeId: user.id,
+          status: { $in: ['Pending', 'Approved', 'Clarification Required'] },
+          $or: [{ startDate: { $lte: end }, endDate: { $gte: start } }]
+        });
+        if (overlap) throw new Error('You have already applied for leave during this date range.');
+
+        const balanceField = getBalanceField(leaveType);
+        if (balanceField) {
+          let balance = await LeaveBalance.findOne({ employeeId: user.id });
+          if (!balance) balance = await LeaveBalance.create({ employeeId: user.id });
+          if (balance[balanceField] < totalDays) {
+            throw new Error(`Insufficient leave balance. Requested ${totalDays} days of ${leaveType}, only ${balance[balanceField]} remaining.`);
+          }
+        }
+
+        // Store as pending — do NOT submit yet
+        setPendingAction(user.id, 'leave', { leaveType, startDate, endDate, totalDays, reason });
+
+        toolResult = {
+          success: true,
+          message: `Here is your leave application for review:\n\nLeave Type: ${leaveType}\nFrom: ${startDate}\nTo: ${endDate}\nDays: ${totalDays}\nReason: ${reason}\n\nPlease say "confirm" or "submit" to apply, or "cancel" to discard.`,
+          pendingReview: true
+        };
+        break;
+      }
+
+      // ─── SUBMIT LEAVE APPLICATION (After Review) ───────────────────────
+      case 'submitLeaveApplication': {
+        const pending = getPendingAction(user.id);
+        if (!pending || pending.type !== 'leave') {
+          throw new Error('No leave application is pending review. Please prepare one first by telling me your leave details.');
+        }
+
+        const { leaveType, startDate, endDate, totalDays, reason } = pending.data;
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        const created = await LeaveRequest.create({
+          employeeId: user.id,
+          employeeName: user.name,
+          department: user.department,
+          leaveType,
+          startDate: start,
+          endDate: end,
+          totalDays,
+          reason,
+          status: 'Pending',
+          voiceTranscript: command
+        });
+
+        // VERIFY
+        const verified = await LeaveRequest.findById(created._id);
+        if (!verified) throw new Error('Leave creation failed — database verification failed.');
+
+        const admins = await Employee.find({ role: 'Admin', status: 'Active' });
+        if (admins.length > 0) {
+          await Notification.insertMany(admins.map(a => ({
+            recipient: a._id,
+            title: 'New Leave Request Submitted',
+            message: `${user.name} applied for ${leaveType} from ${start.toLocaleDateString()} to ${end.toLocaleDateString()} (${totalDays} days).`,
+            type: 'New Leave Request'
+          })));
+        }
+
+        await AuditLog.create({
+          action: 'AI Applied Leave',
+          performedBy: user.id,
+          details: `Applied for ${leaveType} (${totalDays} days) from ${startDate} to ${endDate}`
+        });
+
+        clearPendingAction(user.id);
+
+        action = 'NAVIGATE';
+        path = '/leaves';
+        toolResult = { success: true, message: `Leave request for ${leaveType} submitted successfully from ${startDate} to ${endDate} (${totalDays} days).` };
+        break;
+      }
+
+      // ─── APPLY LEAVE (Legacy — direct apply, kept for backward compat) ──
       case 'applyLeave': {
         const { leaveType, startDate, endDate, reason } = functionArgs;
 
@@ -357,34 +450,80 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
       // ─── MARK NOTIFICATION READ ───────────────────────────────────────────
       case 'markNotificationRead': {
-        const { notificationNumber } = functionArgs;
-        const item = getListItemByNumber(user.id, notificationNumber);
+        const { notificationNumbers, descriptions, notificationNumber } = functionArgs;
 
-        if (!item || !item.id) {
-          throw new Error(`No notification found at number ${notificationNumber}. Say "show notifications" first.`);
+        // Collect notification IDs to mark as read
+        const idsToMark = [];
+        const markedTitles = [];
+
+        // 1. Handle array of numbers from listed context
+        if (notificationNumbers && notificationNumbers.length > 0) {
+          for (const num of notificationNumbers) {
+            const item = getListItemByNumber(user.id, num);
+            if (item && item.id) {
+              idsToMark.push(item.id);
+            }
+          }
         }
 
-        const notification = await Notification.findOne({ _id: item.id, recipient: user.id });
-        if (!notification) throw new Error('Notification not found or does not belong to you.');
+        // 2. Handle single notificationNumber (backward compat)
+        if (notificationNumber && !notificationNumbers) {
+          const item = getListItemByNumber(user.id, notificationNumber);
+          if (item && item.id) {
+            idsToMark.push(item.id);
+          }
+        }
 
-        notification.isRead = true;
-        await notification.save();
+        // 3. Handle description/keyword search
+        if (descriptions && descriptions.length > 0) {
+          for (const desc of descriptions) {
+            const regex = new RegExp(desc, 'i');
+            const matches = await Notification.find({
+              recipient: user.id,
+              isRead: false,
+              $or: [{ title: regex }, { message: regex }]
+            }).lean();
+            for (const m of matches) {
+              if (!idsToMark.includes(m._id.toString())) {
+                idsToMark.push(m._id.toString());
+              }
+            }
+          }
+        }
+
+        if (idsToMark.length === 0) {
+          throw new Error('No matching notifications found. Say "show notifications" first, then reference them by number or description.');
+        }
+
+        // Mark all matched notifications as read
+        for (const nid of idsToMark) {
+          const notification = await Notification.findOne({ _id: nid, recipient: user.id });
+          if (notification) {
+            notification.isRead = true;
+            await notification.save();
+            markedTitles.push(notification.title);
+          }
+        }
 
         // VERIFY
-        const verified = await Notification.findById(notification._id);
-        if (!verified || verified.isRead !== true) {
-          throw new Error('Failed to mark notification as read — database verification failed.');
+        const verifyResults = await Notification.find({ _id: { $in: idsToMark }, recipient: user.id });
+        const allMarked = verifyResults.every(n => n.isRead === true);
+        if (!allMarked) {
+          throw new Error('Failed to mark some notifications as read — database verification failed.');
         }
 
         await AuditLog.create({
           action: 'AI Marked Notification Read',
           performedBy: user.id,
-          details: `Marked notification "${notification.title}" as read`
+          details: `Marked ${markedTitles.length} notification(s) as read: ${markedTitles.join(', ')}`
         });
 
         action = 'NAVIGATE';
         path = '/notifications';
-        toolResult = { success: true, message: `Notification "${notification.title}" marked as read.` };
+        const summary = markedTitles.length === 1
+          ? `Notification "${markedTitles[0]}" marked as read.`
+          : `${markedTitles.length} notifications marked as read: ${markedTitles.join(', ')}.`;
+        toolResult = { success: true, message: summary };
         break;
       }
 
@@ -413,7 +552,99 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         break;
       }
 
-      // ─── CREATE EMPLOYEE ──────────────────────────────────────────────────
+      // ─── PREPARE EMPLOYEE CREATION (Review Mode) ──────────────────────
+      case 'prepareEmployeeCreation': {
+        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        const { firstName, lastName, email, phone, department, designation, role, gender } = functionArgs;
+
+        if (!firstName || !lastName) throw new Error('Both first name and last name are required.');
+        if (!email) throw new Error('Email address is required.');
+        if (!phone || !/^\d{10}$/.test(phone)) throw new Error('Phone number must be exactly 10 digits.');
+        if (!department) throw new Error('Department is required.');
+        if (!designation) throw new Error('Designation is required.');
+
+        // Check for duplicate email
+        const existingEmail = await Employee.findOne({ email: email.toLowerCase() });
+        if (existingEmail) throw new Error(`An employee with email "${email}" already exists.`);
+
+        // Store as pending — do NOT create yet
+        setPendingAction(user.id, 'employee', { firstName, lastName, email, phone, department, designation, role: role || 'Employee', gender });
+
+        toolResult = {
+          success: true,
+          message: `Here is the employee record for review:\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPhone: ${phone}\nDepartment: ${department}\nDesignation: ${designation}\nRole: ${role || 'Employee'}${gender ? '\nGender: ' + gender : ''}\n\nPlease say "confirm" or "create" to proceed, or "cancel" to discard.`,
+          pendingReview: true
+        };
+        break;
+      }
+
+      // ─── SUBMIT EMPLOYEE CREATION (After Review) ──────────────────────
+      case 'submitEmployeeCreation': {
+        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+
+        const pending = getPendingAction(user.id);
+        if (!pending || pending.type !== 'employee') {
+          throw new Error('No employee creation is pending review. Please prepare one first by providing employee details.');
+        }
+
+        const { firstName, lastName, email, phone, department, designation, role, gender } = pending.data;
+
+        const employeeId = await generateEmployeeId();
+        const tempPassword = 'Temp@1234';
+
+        const employeeData = {
+          employeeId,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim(),
+          department: department.trim(),
+          designation: designation.trim(),
+          role: role || 'Employee',
+          gender: gender || undefined,
+          password: tempPassword,
+          isTempPassword: true,
+        };
+
+        const created = await Employee.create(employeeData);
+
+        // VERIFY
+        const verified = await Employee.findById(created._id);
+        if (!verified) throw new Error('Employee creation failed — database verification failed.');
+
+        // Create leave balance
+        await LeaveBalance.create({ employeeId: created._id });
+
+        // Notification for admins
+        const admins = await Employee.find({ role: 'Admin', status: 'Active', _id: { $ne: user.id } });
+        if (admins.length > 0) {
+          await Notification.insertMany(admins.map(a => ({
+            recipient: a._id,
+            title: 'New Employee Created',
+            message: `${user.name} created employee ${verified.name} (${employeeId}) via AI Assistant.`,
+            type: 'Employee Created'
+          })));
+        }
+
+        await AuditLog.create({
+          action: 'AI Created Employee',
+          performedBy: user.id,
+          targetUser: created._id,
+          details: `Created employee ${verified.name} (${employeeId}). Temporary password assigned.`
+        });
+
+        clearPendingAction(user.id);
+
+        action = 'NAVIGATE';
+        path = '/employees';
+        toolResult = {
+          success: true,
+          message: `Employee created successfully!\nName: ${verified.name}\nID: ${employeeId}\nEmail: ${email}\nDepartment: ${department}\nDesignation: ${designation}\nTemporary Password: ${tempPassword}\nNavigating to employee list.`
+        };
+        break;
+      }
+
+      // ─── CREATE EMPLOYEE (Legacy — direct create, kept for backward compat) ──
       case 'createEmployee': {
         if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
         const { firstName, lastName, email, phone, department, designation, role, gender } = functionArgs;
@@ -646,6 +877,19 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         action = 'NAVIGATE'; path = '/leaves/apply';
         toolResult = { success: true, message: 'Opening leave application form.' };
         break;
+
+      // ─── PERFORM LOGOUT ─────────────────────────────────────────────────
+      case 'performLogout': {
+        await AuditLog.create({
+          action: 'AI Triggered Logout',
+          performedBy: user.id,
+          details: `User ${user.name} logged out via AI Assistant`
+        });
+
+        action = 'LOGOUT';
+        toolResult = { success: true, message: `Goodbye ${user.name}! Logging you out now. Have a great day!` };
+        break;
+      }
 
       default:
         throw new Error(`Unknown tool function: ${functionName}`);
