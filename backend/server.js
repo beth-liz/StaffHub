@@ -43,7 +43,7 @@ connectDB();
 
 // ─── AI Startup Diagnostics ──────────────────────────────────────────────────
 // Run non-blocking after a short delay to allow DB to initialize first
-setTimeout(() => runStartupDiagnostics().catch(() => {}), 3000);
+setTimeout(() => runStartupDiagnostics().catch(() => { }), 3000);
 
 const app = express();
 

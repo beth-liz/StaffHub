@@ -6,22 +6,20 @@ import { runLocalIntentEngine } from './localIntentEngine.js';
 import AIInteractionLog from '../models/AIInteractionLog.js';
 
 // ─── Provider Configuration ───────────────────────────────────────────────────
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
-const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+const OPENAI_MODEL = 'gpt-4o-mini';
 
-let groqClient = null;
+let openAiClient = null;
 
-const getGroqClient = () => {
-  if (!groqClient) {
-    if (!process.env.GROQ_API_KEY) {
-      throw new Error('GROQ_API_KEY is missing. Please set it in backend/.env');
+const getOpenAiClient = () => {
+  if (!openAiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is missing. Please set it in backend/.env');
     }
-    groqClient = new OpenAI({
-      apiKey: process.env.GROQ_API_KEY,
-      baseURL: GROQ_BASE_URL,
+    openAiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
   }
-  return groqClient;
+  return openAiClient;
 };
 
 // ─── Startup Diagnostics ──────────────────────────────────────────────────────
@@ -30,27 +28,27 @@ export const runStartupDiagnostics = async () => {
   console.log('  AI Voice Assistant — Startup Diagnostics');
   console.log('──────────────────────────────────────────');
 
-  if (!process.env.GROQ_API_KEY) {
-    console.warn('✗ GROQ_API_KEY not found — AI will run in local fallback mode only');
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('✗ OPENAI_API_KEY not found — AI will run in local fallback mode only');
     console.log('──────────────────────────────────────────\n');
     return;
   }
 
-  console.log('✓ GROQ_API_KEY loaded');
+  console.log('✓ OPENAI_API_KEY loaded');
 
   try {
-    const client = getGroqClient();
+    const client = getOpenAiClient();
     // Lightweight connectivity check — send a minimal 1-token completion
     await client.chat.completions.create({
-      model: GROQ_MODEL,
+      model: OPENAI_MODEL,
       messages: [{ role: 'user', content: 'ping' }],
       max_tokens: 1,
     });
-    console.log('✓ Groq connectivity successful');
-    console.log(`✓ Model available: ${GROQ_MODEL}`);
-    console.log('✓ AI Assistant ready (Groq mode)');
+    console.log('✓ OpenAI connectivity successful');
+    console.log(`✓ Model available: ${OPENAI_MODEL}`);
+    console.log('✓ AI Assistant ready (OpenAI mode)');
   } catch (err) {
-    console.error(`✗ Groq connection failed: ${err.message}`);
+    console.error(`✗ OpenAI connection failed: ${err.message}`);
     console.warn('  Falling back to local intent engine for all requests.');
   }
 
@@ -66,7 +64,7 @@ const safeParseArgs = (rawArgs) => {
     const parsed = JSON.parse(rawArgs);
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
-    // Attempt to salvage partial JSON from malformed Llama outputs
+    // Attempt to salvage partial JSON from malformed LLM outputs
     try {
       const cleaned = rawArgs.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
       return JSON.parse(cleaned) || {};
@@ -77,7 +75,7 @@ const safeParseArgs = (rawArgs) => {
   }
 };
 
-// ─── Main Groq Chat Entry Point ───────────────────────────────────────────────
+// ─── Main OpenAI Chat Entry Point ─────────────────────────────────────────────
 export const runOpenAIChat = async ({ command, user }) => {
 
   const userId = user.id.toString();
@@ -86,10 +84,10 @@ export const runOpenAIChat = async ({ command, user }) => {
   addToHistory(userId, 'user', command);
   const currentHistory = getHistory(userId);
 
-  // ── Phase 1: Try Groq ──────────────────────────────────────────────────────
-  if (process.env.GROQ_API_KEY) {
+  // ── Phase 1: Try OpenAI ──────────────────────────────────────────────────────
+  if (process.env.OPENAI_API_KEY) {
     try {
-      const client = getGroqClient();
+      const client = getOpenAiClient();
 
       const formattedDate = new Date().toLocaleDateString('en-US', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -132,10 +130,10 @@ CRITICAL RULES:
 
       const tools = getToolsForRole(user.role);
 
-      console.log(`[AI] Detected Intent: Sending to Groq (${GROQ_MODEL})`);
+      console.log(`[AI] Detected Intent: Sending to OpenAI (${OPENAI_MODEL})`);
 
       const response = await client.chat.completions.create({
-        model: GROQ_MODEL,
+        model: OPENAI_MODEL,
         messages,
         tools,
         tool_choice: 'auto',
@@ -154,9 +152,9 @@ CRITICAL RULES:
           functionName, functionArgs, user, command
         );
 
-        // Send result back to Groq for a conversational final reply
+        // Send result back to OpenAI for a conversational final reply
         const secondResponse = await client.chat.completions.create({
-          model: GROQ_MODEL,
+          model: OPENAI_MODEL,
           messages: [
             ...messages,
             responseMessage,
@@ -177,7 +175,7 @@ CRITICAL RULES:
 
         return {
           success: status === 'Success',
-          provider: 'groq',
+          provider: 'openai',
           intent,
           speechResponse: finalMessage,
           action,
@@ -206,7 +204,7 @@ CRITICAL RULES:
 
       return {
         success: true,
-        provider: 'groq',
+        provider: 'openai',
         intent: 'CONVERSATION',
         speechResponse: textReply,
         action: null,
@@ -214,12 +212,12 @@ CRITICAL RULES:
         listItems: null
       };
 
-    } catch (groqError) {
-      console.error(`[AI] Groq request failed: ${groqError.message}`);
+    } catch (openaiError) {
+      console.error(`[AI] OpenAI request failed: ${openaiError.message}`);
       console.warn('[AI] Switching to local intent engine fallback...');
     }
   } else {
-    console.warn('[AI] GROQ_API_KEY not set — using local intent engine.');
+    console.warn('[AI] OPENAI_API_KEY not set — using local intent engine.');
   }
 
   // ── Phase 2: Local intent engine fallback ──────────────────────────────────
