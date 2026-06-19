@@ -139,8 +139,18 @@ export const runLocalIntentEngine = async ({ command, user }) => {
   }
 
   // Navigation Settings
-  if (cleanCommand.includes('settings') || cleanCommand.includes('preferences')) {
+  if (cleanCommand.includes('settings') || cleanCommand.includes('preferences') || cleanCommand.includes('portal setting')) {
     return await handleToolExecution('navigateSettings', {}, user, command);
+  }
+
+  // Navigation Apply Leave
+  if (cleanCommand.includes('apply leave page') || cleanCommand.includes('leave application form') || cleanCommand === 'apply for leave page') {
+    return await handleToolExecution('navigateApplyLeave', {}, user, command);
+  }
+
+  // Navigation Leave Approvals (Admin)
+  if (cleanCommand.includes('leave approval')) {
+    return await handleToolExecution('navigateLeaveApprovals', {}, user, command);
   }
 
   // Navigation Employees
@@ -161,6 +171,16 @@ export const runLocalIntentEngine = async ({ command, user }) => {
   // Show Pending Requests
   if (cleanCommand.includes('show pending') || cleanCommand.includes('pending leave') || cleanCommand.includes('pending requests')) {
     return await handleToolExecution('showPendingRequests', {}, user, command);
+  }
+
+  // Navigation Audit Logs
+  if (cleanCommand.includes('audit log') || cleanCommand.includes('system log')) {
+    return await handleToolExecution('navigateAuditLogs', {}, user, command);
+  }
+
+  // Navigation AI History / Logs
+  if (cleanCommand.includes('ai history') || cleanCommand.includes('ai assistant log') || cleanCommand.includes('command log')) {
+    return await handleToolExecution('navigateAIHistory', {}, user, command);
   }
 
   // Show Notifications
@@ -262,13 +282,12 @@ export const runLocalIntentEngine = async ({ command, user }) => {
     }
 
     let reason = null;
-    const reasonIndex = cleanCommand.indexOf('because of');
-    if (reasonIndex !== -1) {
-      reason = command.slice(reasonIndex + 10).trim();
-    } else {
-      const dueIndex = cleanCommand.indexOf('due to');
-      if (dueIndex !== -1) {
-        reason = command.slice(dueIndex + 6).trim();
+    const reasonKeywords = ['because of', 'because', 'due to', 'as i', 'since i', 'for a'];
+    for (const kw of reasonKeywords) {
+      const idx = cleanCommand.indexOf(kw);
+      if (idx !== -1) {
+        reason = command.slice(idx + kw.length).trim();
+        break;
       }
     }
 

@@ -281,6 +281,14 @@ const adminTools = [
   {
     type: 'function',
     function: {
+      name: 'navigateLeaveApprovals',
+      description: 'Navigate to the leave approvals page.',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'navigateAuditLogs',
       description: 'Navigate to the audit logs / system logs page.',
       parameters: { type: 'object', properties: {} }

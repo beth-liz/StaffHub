@@ -265,6 +265,27 @@ export const clearAISession = async () => {
   }
 };
 
+/**
+ * Transcribe an audio Blob via OpenAI Whisper (server-side fallback).
+ * @param {Blob}   blob      Raw audio blob from MediaRecorder
+ * @param {string} mimeType  e.g. 'audio/webm;codecs=opus'
+ */
+export const transcribeAudio = async (blob, mimeType = 'audio/webm') => {
+  try {
+    const ext = mimeType.includes('ogg') ? '.ogg' : mimeType.includes('wav') ? '.wav' : '.webm';
+    const formData = new FormData();
+    formData.append('audio', blob, `recording${ext}`);
+
+    const res = await api.post('/ai/transcribe', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 20000, // Whisper can take a few seconds
+    });
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || err;
+  }
+};
+
 // ─── Health Check ─────────────────────────────────────────────────────────────
 export const checkHealth = async () => {
   const response = await api.get('/health');

@@ -861,6 +861,12 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         toolResult = { success: true, message: 'Opening employee directory.' };
         break;
 
+      case 'navigateLeaveApprovals':
+        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        action = 'NAVIGATE'; path = '/leaves';
+        toolResult = { success: true, message: 'Opening leave approvals page.' };
+        break;
+
       case 'navigateAuditLogs':
         if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
         action = 'NAVIGATE'; path = '/audit-logs';

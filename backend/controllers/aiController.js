@@ -1,6 +1,19 @@
+import fs from 'fs';
+import path from 'path';
+import OpenAI from 'openai';
 import AIInteractionLog from '../models/AIInteractionLog.js';
 import { runOpenAIChat } from '../services/openaiService.js';
 import { clearSession } from '../services/aiSessionManager.js';
+
+// Lazy-initialise the OpenAI client (reuse backend key)
+let _openai = null;
+const getOpenAI = () => {
+  if (!_openai) {
+    if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+};
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
@@ -44,6 +57,55 @@ export const handleAICommand = async (req, res, next) => {
       path: null,
       listItems: null
     });
+  }
+};
+
+// @desc    Transcribe audio blob via OpenAI Whisper
+// @route   POST /api/ai/transcribe
+// @access  Private
+export const transcribeAudio = async (req, res) => {
+  const filePath = req.file?.path;
+
+  if (!filePath) {
+    return res.status(400).json({ success: false, message: 'No audio file provided.' });
+  }
+
+  try {
+    const client = getOpenAI();
+
+    // Determine original extension; fall back to .webm
+    const ext = path.extname(req.file.originalname || 'audio.webm') || '.webm';
+    const renamedPath = filePath + ext;
+    fs.renameSync(filePath, renamedPath);
+
+    console.log(`[Whisper] Transcribing file: ${renamedPath} (${req.file.size} bytes)`);
+
+    const transcription = await client.audio.transcriptions.create({
+      file: fs.createReadStream(renamedPath),
+      model: 'whisper-1',
+      language: 'en',
+      // Prompt hints for Indian English vocabulary & HRMS domain
+      prompt: 'StaffHub HR assistant. Indian English. Leave application, employee management, payroll, attendance.',
+      response_format: 'json',
+    });
+
+    const transcript = transcription.text?.trim() || '';
+    console.log(`[Whisper] Transcript: "${transcript}"`);
+
+    // Clean up temp file
+    try { fs.unlinkSync(renamedPath); } catch { /* ignore */ }
+
+    if (!transcript) {
+      return res.status(200).json({ success: false, transcript: '', message: 'No speech detected in audio.' });
+    }
+
+    return res.status(200).json({ success: true, transcript });
+
+  } catch (err) {
+    // Clean up on error
+    try { if (filePath) fs.unlinkSync(filePath); } catch { /* ignore */ }
+    console.error('[Whisper] Transcription failed:', err.message);
+    return res.status(500).json({ success: false, message: 'Transcription failed. Please try again.' });
   }
 };
 

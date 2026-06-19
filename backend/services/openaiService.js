@@ -75,13 +75,26 @@ const safeParseArgs = (rawArgs) => {
   }
 };
 
+// ─── Voice Pre-processor ──────────────────────────────────────────────────────
+const normalizeVoiceCommand = (text) => {
+  if (!text) return text;
+  let normalized = text;
+  // Normalize spoken emails (e.g., "philip at gmail dot com" -> "philip@gmail.com")
+  normalized = normalized.replace(/\b at \b/gi, '@');
+  normalized = normalized.replace(/\b dot \b/gi, '.');
+  normalized = normalized.replace(/\b underscore \b/gi, '_');
+  return normalized;
+};
+
 // ─── Main OpenAI Chat Entry Point ─────────────────────────────────────────────
 export const runOpenAIChat = async ({ command, user }) => {
+
+  const normalizedCommand = normalizeVoiceCommand(command);
 
   const userId = user.id.toString();
   // Server-side session history management
   getSession(userId); // ensure session exists
-  addToHistory(userId, 'user', command);
+  addToHistory(userId, 'user', normalizedCommand);
   const currentHistory = getHistory(userId);
 
   // ── Phase 1: Try OpenAI ──────────────────────────────────────────────────────
@@ -111,7 +124,11 @@ CRITICAL RULES:
 7. NEVER auto-guess the leave type. If the user says "I want to take leave" without specifying the type, you MUST ask: "What type of leave would you like to apply for?" Do NOT default to any type.
 8. If any required parameter is missing, ASK ONLY for the missing information. Do not ask for confirmation of the whole form.
 9. When the user says "cancel", clear the current flow and acknowledge the cancellation.
-10. When a user says "log me out", "logout", or "sign out", say a brief goodbye and call performLogout.`;
+10. When a user says "log me out", "logout", or "sign out", say a brief goodbye and call performLogout.
+11. SPOKEN EMAIL: The user might spell out emails. Always format them properly (e.g., "philip@gmail.com", "maria.fernando@outlook.com", "philip_gregory@gmail.com").
+12. PHONE NUMBERS: If a user provides a phone number in multiple parts across different turns (e.g., "998844", then "4411"), you MUST merge them together (e.g., "9988444411").
+13. NATURAL CONVERSATION: Extract details naturally from conversational sentences (e.g., "He works in Sales", "Make him a Sales Manager").
+14. NAVIGATION: The tool will automatically navigate the user to the correct page on success. Do not say "I will navigate you there", just say the action was successful.`;
 
       const employeeSpecificRules = `\nYou are the AI Voice Assistant for StaffHub HRMS v2 for an Employee. You can help them apply for leave, check balances, and navigate the portal. You CANNOT manage other employees, approve/reject leaves, or view system logs.`;
       
@@ -125,7 +142,7 @@ CRITICAL RULES:
       const messages = [
         { role: 'system', content: systemPrompt },
         ...llmHistory,
-        { role: 'user', content: command }
+        { role: 'user', content: normalizedCommand }
       ];
 
       const tools = getToolsForRole(user.role);

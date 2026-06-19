@@ -1,44 +1,94 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Loader2, X, MessageSquare, Volume2, VolumeX, ChevronDown, List, LogOut } from 'lucide-react';
+import {
+  Mic, MicOff, Loader2, X, MessageSquare, Volume2, VolumeX,
+  ChevronDown, CheckCircle, AlertCircle, RefreshCw
+} from 'lucide-react';
 import { sendAICommand, clearAISession } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
-
-// Safe checking for Speech Recognition API
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+import useSpeechRecognition, { RECOGNITION_STATUS } from '../hooks/useSpeechRecognition';
 
 const AIAssistant = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  
-  const [isOpen, setIsOpen] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+
+  const [isOpen, setIsOpen]           = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [transcript, setTranscript] = useState('');
+  const [messages, setMessages]       = useState([]);
+  const [inputText, setInputText]     = useState('');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  
+
   const messagesEndRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const synthRef = window.speechSynthesis;
+  const synthRef       = useRef(window.speechSynthesis);
 
-  // Session keys specific to this user
+  // ── Session keys per user ──────────────────────────────────────────────────
   const sessionKey = user ? `ai_chat_messages_${user.id}` : null;
-  const stateKey = user ? `ai_chat_open_${user.id}` : null;
+  const stateKey   = user ? `ai_chat_open_${user.id}`    : null;
 
-  // Initialize and check session
+  // ── Handle a fully recognised transcript ──────────────────────────────────
+  const handleTranscriptReady = useCallback((text) => {
+    if (!text || !text.trim()) {
+      console.warn('[AIAssistant] Empty transcript received — skipping');
+      return;
+    }
+    console.log('[AIAssistant] Transcript ready →', text);
+    // Clear the input field and voice state immediately so the UI looks clean
+    setInputText('');
+    handleProcessCommand(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Speech recognition hook ────────────────────────────────────────────────
+  const {
+    isSupported,
+    status:             voiceStatus,
+    transcript:         liveTranscript,
+    interimTranscript,
+    error:              voiceError,
+    isListening,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition({
+    lang: 'en-IN',   // Indian English — better accuracy for Indian accents
+    onTranscriptReady: handleTranscriptReady,
+    useWhisperFallback: true,
+  });
+
+  // Sync live transcript into the input field for user feedback
+  useEffect(() => {
+    if (liveTranscript) setInputText(liveTranscript);
+  }, [liveTranscript]);
+
+  // Show voice errors as toasts
+  // NOTE: The hook already suppresses false-positive Chrome 'network' errors
+  // (those fired after a successful transcript). Only genuine errors reach here.
+  useEffect(() => {
+    if (!voiceError) return;
+    if (voiceError.includes('denied') || voiceError.includes('not-allowed')) {
+      toast.error(voiceError, { duration: 6000, id: 'mic-error' });
+    } else if (voiceError.includes('internet connection')) {
+      // Only show this when the hook confirmed it's a real network failure
+      toast.error('Speech recognition requires an internet connection.', { duration: 4000, id: 'network-error' });
+    } else if (voiceError.includes('No speech')) {
+      // Silently shown in the status pill only
+    } else {
+      toast.error(`Voice error: ${voiceError}`, { duration: 4000, id: 'voice-error' });
+    }
+  }, [voiceError]);
+
+  // ── Session management ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) {
       setMessages([]);
       setIsOpen(false);
       return;
     }
-    
-    // Check if we switched users — clear out mismatched keys just in case
+
     const currentUserId = user.id;
-    const storedUserId = sessionStorage.getItem('ai_current_user_id');
-    
+    const storedUserId  = sessionStorage.getItem('ai_current_user_id');
+
     if (storedUserId && storedUserId !== currentUserId) {
       Object.keys(sessionStorage).forEach(key => {
         if (key.startsWith('ai_chat_messages_') || key.startsWith('ai_chat_open_')) {
@@ -48,14 +98,10 @@ const AIAssistant = () => {
     }
     sessionStorage.setItem('ai_current_user_id', currentUserId);
 
-    // Load user's isolated history
     const savedMessages = sessionStorage.getItem(sessionKey);
     if (savedMessages) {
-      try {
-        setMessages(JSON.parse(savedMessages));
-      } catch {
-        setMessages([]);
-      }
+      try { setMessages(JSON.parse(savedMessages)); }
+      catch { setMessages([]); }
     } else {
       setMessages([{
         id: Date.now().toString(),
@@ -66,167 +112,79 @@ const AIAssistant = () => {
     }
 
     const savedOpenState = sessionStorage.getItem(stateKey);
-    if (savedOpenState === 'true') {
-      setIsOpen(true);
-    }
+    if (savedOpenState === 'true') setIsOpen(true);
   }, [user, sessionKey, stateKey]);
 
-  // Persist messages to this user's isolated session
   useEffect(() => {
     if (sessionKey && messages.length > 0) {
       sessionStorage.setItem(sessionKey, JSON.stringify(messages));
     }
   }, [messages, sessionKey]);
 
-  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
 
-  // Handle Speech Synthesis
-  const speakText = (text) => {
-    if (!voiceEnabled || !synthRef) return;
-    synthRef.cancel(); // stop previous
+  // ── Speech synthesis ───────────────────────────────────────────────────────
+  const speakText = useCallback((text) => {
+    if (!voiceEnabled || !synthRef.current) return;
+    synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    // Find a good english voice if possible
-    const voices = synthRef.getVoices();
-    const goodVoice = voices.find(v => v.lang.includes('en-GB') || v.lang.includes('en-US'));
+    const voices    = synthRef.current.getVoices();
+    const goodVoice = voices.find(v => v.lang.startsWith('en'));
     if (goodVoice) utterance.voice = goodVoice;
-    utterance.rate = 1.05; // slightly faster
-    synthRef.speak(utterance);
-  };
+    utterance.rate = 1.05;
+    synthRef.current.speak(utterance);
+  }, [voiceEnabled]);
 
-  // Initialize Speech Recognition
-  useEffect(() => {
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        if (voiceEnabled) synthRef?.cancel();
-      };
-
-      recognition.onresult = (event) => {
-        const current = event.resultIndex;
-        const result = event.results[current];
-        const text = result[0].transcript;
-        setTranscript(text);
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-        
-        // Handle specific errors gracefully
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          toast.error('Microphone access denied. Please allow microphone permissions in your browser settings.', { duration: 5000 });
-        } else if (event.error === 'network') {
-          toast.error('Speech recognition requires an internet connection.', { duration: 3000 });
-        } else if (event.error === 'aborted') {
-          // User or system aborted — silent
-        } else if (event.error === 'no-speech') {
-          // No speech detected — auto-restart if panel is open
-          if (isOpen) {
-            // Don't auto-restart, just inform
-          }
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
+  // ── Process command ────────────────────────────────────────────────────────
+  const handleProcessCommand = useCallback(async (commandText) => {
+    const cmd = commandText?.trim();
+    if (!cmd) {
+      console.warn('[AIAssistant] handleProcessCommand called with empty string — skipped');
+      return;
     }
 
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-      synthRef?.cancel();
-    };
-  }, [voiceEnabled, synthRef, isOpen]);
-
-  // Process transcript when listening stops naturally
-  useEffect(() => {
-    if (!isListening && transcript.trim()) {
-      handleProcessCommand(transcript);
-      setTranscript('');
-    }
-  }, [isListening]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const toggleListen = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      setTranscript('');
-      recognitionRef.current?.start();
-    }
-  };
-
-  const handleProcessCommand = async (commandText) => {
-    if (!commandText.trim()) return;
-
-    // Add user message
     const userMsg = {
       id: Date.now().toString(),
       sender: 'user',
-      text: commandText,
+      text: cmd,
       timestamp: new Date().toISOString()
     };
     setMessages(prev => [...prev, userMsg]);
     setIsProcessing(true);
 
     try {
-      // Send to server (server manages conversation history now)
-      const res = await sendAICommand(commandText);
+      const res = await sendAICommand(cmd);
 
-      // Handle post-action UI navigation and events
       if (res.action === 'NAVIGATE' && res.path) {
         navigate(res.path);
       } else if (res.action === 'TOGGLE_DARK_MODE') {
-        const event = new CustomEvent('staffhub:toggleDarkMode', { 
-          detail: { enabled: !document.documentElement.classList.contains('dark') } 
-        });
-        window.dispatchEvent(event);
+        window.dispatchEvent(new CustomEvent('staffhub:toggleDarkMode', {
+          detail: { enabled: !document.documentElement.classList.contains('dark') }
+        }));
       } else if (res.action === 'DOWNLOAD_EXCEL' && res.path) {
-        // Trigger download
         const url = `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}${res.path}`;
         window.open(url, '_blank');
       } else if (res.action === 'LOGOUT') {
-        // Formal logout workflow: Speak → Wait 3s → Clear → Redirect
         const goodbyeMsg = res.speechResponse || `Goodbye ${user?.name}! See you next time.`;
         speakText(goodbyeMsg);
-        
-        const aiMsg = {
+        setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(),
           sender: 'ai',
           text: goodbyeMsg,
           timestamp: new Date().toISOString()
-        };
-        setMessages(prev => [...prev, aiMsg]);
+        }]);
         setIsProcessing(false);
-        
         toast.success('Logging you out...', { duration: 3000, icon: '👋' });
-        
-        // Wait 3 seconds for speech to finish, then logout
-        setTimeout(() => {
-          synthRef?.cancel();
-          logout();
-          navigate('/login');
-        }, 3000);
-        return; // Early return — don't add message twice
+        setTimeout(() => { synthRef.current?.cancel(); logout(); navigate('/login'); }, 3000);
+        return;
       }
 
-      // Always dispatch a global refresh event after any successful AI action
       if (res.success || res.action) {
         window.dispatchEvent(new Event('staffhub:refreshData'));
       }
 
-      // Add AI response message
       const aiMsg = {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
@@ -234,66 +192,97 @@ const AIAssistant = () => {
         timestamp: new Date().toISOString(),
         listItems: res.listItems || null
       };
-
       setMessages(prev => [...prev, aiMsg]);
-      
-      // Speak it
       speakText(aiMsg.text);
 
     } catch (err) {
-      console.error('AI Command failed:', err);
-      const errMsg = {
+      console.error('[AIAssistant] AI Command failed:', err);
+      const errText = err.message || 'I encountered an error trying to process that request.';
+      setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
-        text: err.message || "I encountered an error trying to process that request.",
+        text: errText,
         timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, errMsg]);
-      speakText(errMsg.text);
+      }]);
+      speakText(errText);
     } finally {
       setIsProcessing(false);
+      // Reset voice state back to idle so status pill shows 'Online' again
+      resetTranscript();
     }
-  };
+  }, [navigate, user, speakText, logout, resetTranscript]);
 
+  // ── Mic button toggle ──────────────────────────────────────────────────────
+  const toggleListen = useCallback(() => {
+    if (isProcessing) return;
+    if (isListening) {
+      stopListening();
+    } else {
+      if (voiceEnabled) synthRef.current?.cancel(); // stop any ongoing TTS
+      resetTranscript();
+      setInputText('');
+      startListening();
+    }
+  }, [isProcessing, isListening, voiceEnabled, startListening, stopListening, resetTranscript]);
+
+  // ── Text form submit ───────────────────────────────────────────────────────
   const handleTextSubmit = (e) => {
     e.preventDefault();
-    if (transcript.trim()) {
-      handleProcessCommand(transcript);
-      setTranscript('');
+    if (inputText.trim() && !isProcessing) {
+      handleProcessCommand(inputText.trim());
+      setInputText('');
     }
   };
 
   const handleToggleOpen = () => {
     const nextState = !isOpen;
     setIsOpen(nextState);
-    if (stateKey) {
-      sessionStorage.setItem(stateKey, nextState.toString());
-    }
+    if (stateKey) sessionStorage.setItem(stateKey, nextState.toString());
+    // Stop listening if panel is closed
+    if (!nextState && isListening) stopListening();
   };
 
-  // Click handler for list items
   const handleListItemClick = (item) => {
     let cmd = '';
-    if (item.type === 'leave') {
-      // Determine if admin looking at pending, or employee looking at own. 
-      // Safest is to just send the number back to context
-      cmd = `view number ${item.number}`; // Generic
-    } else if (item.type === 'notification') {
-      cmd = `mark notification ${item.number} as read`;
-    } else if (item.type === 'employee') {
-      cmd = `view number ${item.number}`;
-    } else {
-      cmd = `select number ${item.number}`;
-    }
+    if (item.type === 'leave')        cmd = `view number ${item.number}`;
+    else if (item.type === 'notification') cmd = `mark notification ${item.number} as read`;
+    else if (item.type === 'employee') cmd = `view number ${item.number}`;
+    else                              cmd = `select number ${item.number}`;
     handleProcessCommand(cmd);
   };
 
-  // Suggestion chips based on role
-  const suggestions = user?.role === 'Admin' 
-    ? ["Show pending requests", "Create new employee", "Export employees to Excel"]
-    : ["Apply for leave", "Show my leave balance", "Open my profile"];
+  // ── Voice status pill config ───────────────────────────────────────────────
+  const statusConfig = {
+    [RECOGNITION_STATUS.IDLE]: {
+      label: isProcessing ? 'Thinking...' : 'Online',
+      color: 'text-slate-500',
+    },
+    [RECOGNITION_STATUS.LISTENING]: {
+      label: '🎤 Listening...',
+      color: 'text-rose-500 font-semibold animate-pulse',
+    },
+    [RECOGNITION_STATUS.PROCESSING]: {
+      label: '⏳ Processing...',
+      color: 'text-blue-500 font-semibold',
+    },
+    [RECOGNITION_STATUS.RECOGNIZED]: {
+      label: '✓ Command recognized',
+      color: 'text-emerald-500 font-semibold',
+    },
+    [RECOGNITION_STATUS.FAILED]: {
+      label: voiceError?.includes('No speech') ? '⚠ No speech detected' : '✗ Recognition failed',
+      color: 'text-amber-500 font-semibold',
+    },
+  };
 
-  // Don't render anything if not logged in
+  const currentStatusCfg = isProcessing
+    ? statusConfig[RECOGNITION_STATUS.IDLE]
+    : statusConfig[voiceStatus] || statusConfig[RECOGNITION_STATUS.IDLE];
+
+  const suggestions = user?.role === 'Admin'
+    ? ['Show pending requests', 'Create new employee', 'Export employees to Excel']
+    : ['Apply for leave', 'Show my leave balance', 'Open my profile'];
+
   if (!user) return null;
 
   return (
@@ -310,8 +299,8 @@ const AIAssistant = () => {
       )}
 
       {/* Chat Window */}
-      <div 
-        className={`fixed bottom-6 right-6 w-[380px] h-[550px] max-h-[85vh] max-w-[calc(100vw-3rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 transform origin-bottom-right z-50 border border-slate-200 dark:border-slate-800 ${
+      <div
+        className={`fixed bottom-6 right-6 w-[380px] h-[560px] max-h-[85vh] max-w-[calc(100vw-3rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 transform origin-bottom-right z-50 border border-slate-200 dark:border-slate-800 ${
           isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none'
         }`}
       >
@@ -319,17 +308,22 @@ const AIAssistant = () => {
         <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 rounded-t-2xl">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-brand-500/20">
+              {/* Pulsing ring when listening */}
+              {isListening && (
+                <span className="absolute inset-0 rounded-xl bg-rose-500/30 animate-ping" />
+              )}
+              <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center shadow-lg transition-all ${
+                isListening
+                  ? 'bg-rose-500 shadow-rose-500/30'
+                  : 'bg-gradient-to-tr from-brand-500 to-indigo-600 shadow-brand-500/20'
+              }`}>
                 <Mic size={18} className="text-white" />
               </div>
-              {isListening && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping" />
-              )}
             </div>
             <div>
               <h3 className="font-bold text-sm text-slate-800 dark:text-white">StaffHub Assistant</h3>
-              <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                {isProcessing ? 'Thinking...' : isListening ? 'Listening...' : 'Online'}
+              <p className={`text-[10px] flex items-center gap-1 ${currentStatusCfg.color}`}>
+                {currentStatusCfg.label}
               </p>
             </div>
           </div>
@@ -337,7 +331,7 @@ const AIAssistant = () => {
             <button
               onClick={() => setVoiceEnabled(!voiceEnabled)}
               className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors"
-              title={voiceEnabled ? "Mute Voice" : "Enable Voice"}
+              title={voiceEnabled ? 'Mute Voice' : 'Enable Voice'}
             >
               {voiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>
@@ -353,10 +347,7 @@ const AIAssistant = () => {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 dark:bg-slate-900/30 custom-scrollbar">
           {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+            <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                   msg.sender === 'user'
@@ -365,12 +356,11 @@ const AIAssistant = () => {
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.text}</p>
-                
-                {/* Render numbered list items if they exist */}
+
                 {msg.listItems && msg.listItems.length > 0 && (
                   <div className="mt-3 space-y-2">
                     {msg.listItems.map(item => (
-                      <button 
+                      <button
                         key={item.id || item.number}
                         onClick={() => handleListItemClick(item)}
                         className="w-full text-left flex items-start gap-2 p-2 rounded-lg bg-slate-50 hover:bg-brand-50 dark:bg-slate-900/50 dark:hover:bg-brand-500/10 border border-slate-100 dark:border-slate-700 transition-colors group text-xs"
@@ -385,13 +375,15 @@ const AIAssistant = () => {
                     ))}
                   </div>
                 )}
-                
+
                 <span className={`text-[9px] block mt-1.5 ${msg.sender === 'user' ? 'text-brand-200' : 'text-slate-400'}`}>
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
             </div>
           ))}
+
+          {/* Processing indicator */}
           {isProcessing && (
             <div className="flex justify-start">
               <div className="bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-2">
@@ -400,11 +392,46 @@ const AIAssistant = () => {
               </div>
             </div>
           )}
+
           <div ref={messagesEndRef} />
         </div>
 
         {/* Input Area */}
         <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl">
+
+          {/* Interim transcript live preview */}
+          {interimTranscript && (
+            <div className="mb-2 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20">
+              <p className="text-xs text-rose-600 dark:text-rose-400 italic truncate">
+                🎤 {interimTranscript}
+              </p>
+            </div>
+          )}
+
+          {/* Voice status banner */}
+          {voiceStatus === RECOGNITION_STATUS.FAILED && (
+            <div className="mb-2 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 flex items-center justify-between">
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AlertCircle size={10} />
+                {voiceError || 'Recognition failed'}
+              </span>
+              <button
+                onClick={toggleListen}
+                className="text-[10px] text-amber-700 dark:text-amber-300 font-bold hover:underline flex items-center gap-0.5"
+              >
+                <RefreshCw size={9} /> Retry
+              </button>
+            </div>
+          )}
+
+          {voiceStatus === RECOGNITION_STATUS.RECOGNIZED && !isProcessing && (
+            <div className="mb-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 flex items-center gap-1">
+              <CheckCircle size={10} className="text-emerald-500" />
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Command recognized</span>
+            </div>
+          )}
+
+          {/* Suggestion chips */}
           {messages.length < 3 && !isProcessing && !isListening && (
             <div className="flex flex-wrap gap-2 mb-3">
               {suggestions.map((s, i) => (
@@ -418,18 +445,18 @@ const AIAssistant = () => {
               ))}
             </div>
           )}
-          
+
           <form onSubmit={handleTextSubmit} className="flex flex-col gap-2">
             <div className="relative flex items-center">
               <input
                 type="text"
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                placeholder={isListening ? "Listening..." : "Type or say a command..."}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={isListening ? 'Listening… speak now' : 'Type or say a command...'}
                 disabled={isProcessing}
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 disabled:opacity-50 text-slate-800 dark:text-white placeholder-slate-400"
               />
-              {transcript && !isListening && (
+              {inputText.trim() && !isListening && (
                 <button
                   type="submit"
                   disabled={isProcessing}
@@ -439,23 +466,31 @@ const AIAssistant = () => {
                 </button>
               )}
             </div>
-            
-            <button
-              type="button"
-              onClick={toggleListen}
-              disabled={isProcessing}
-              className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                isListening 
-                  ? 'bg-rose-100 text-rose-600 hover:bg-rose-200 dark:bg-rose-500/20 dark:text-rose-400' 
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-              } disabled:opacity-50`}
-            >
-              {isListening ? (
-                <><MicOff size={16} /> Stop Listening</>
-              ) : (
-                <><Mic size={16} /> Tap to Speak</>
-              )}
-            </button>
+
+            {/* Mic button */}
+            {isSupported && (
+              <button
+                type="button"
+                id="ai-assistant-mic-btn"
+                onClick={toggleListen}
+                disabled={isProcessing}
+                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
+                  isListening
+                    ? 'bg-rose-100 text-rose-600 hover:bg-rose-200 dark:bg-rose-500/20 dark:text-rose-400 ring-2 ring-rose-400/40'
+                    : voiceStatus === RECOGNITION_STATUS.FAILED
+                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-400'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                }`}
+              >
+                {isListening ? (
+                  <><MicOff size={16} /> Stop Listening</>
+                ) : voiceStatus === RECOGNITION_STATUS.FAILED ? (
+                  <><RefreshCw size={16} /> Retry Voice</>
+                ) : (
+                  <><Mic size={16} /> Tap to Speak</>
+                )}
+              </button>
+            )}
           </form>
         </div>
       </div>
