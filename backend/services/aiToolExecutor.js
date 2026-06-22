@@ -155,7 +155,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         toolResult = {
           success: true,
-          message: `Here is your leave application for review:\n\nLeave Type: ${leaveType}\nFrom: ${startDate}\nTo: ${endDate}\nDays: ${totalDays}\nReason: ${reason}\n\nPlease say "confirm" or "submit" to apply, or "cancel" to discard.`,
+          message: `I've got your leave request ready. Here are the details:\n\nLeave Type: ${leaveType}\nFrom: ${startDate}\nTo: ${endDate}\nDays: ${totalDays}\nReason: ${reason}\n\nDoes everything look good? Just say "confirm" to submit, or "cancel" if you want to hold off.`,
           pendingReview: true
         };
         break;
@@ -209,7 +209,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/leaves';
-        toolResult = { success: true, message: `Leave request for ${leaveType} submitted successfully from ${startDate} to ${endDate} (${totalDays} days).` };
+        toolResult = { success: true, message: `Done! I've submitted your ${leaveType} request for ${totalDays} day(s), from ${startDate} to ${endDate}. You can check its status anytime.` };
         break;
       }
 
@@ -278,13 +278,13 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/leaves';
-        toolResult = { success: true, message: `Leave request for ${leaveType} submitted successfully from ${startDate} to ${endDate} (${totalDays} days).` };
+        toolResult = { success: true, message: `Done! I've submitted your ${leaveType} request for ${totalDays} day(s), from ${startDate} to ${endDate}. You can check its status anytime.` };
         break;
       }
 
       // ─── APPROVE LEAVE ────────────────────────────────────────────────────
       case 'approveLeave': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { employeeName, leaveNumber, remarks } = functionArgs;
 
         const req = await resolvePendingLeave(employeeName, leaveNumber, user.id);
@@ -325,13 +325,13 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/leaves';
-        toolResult = { success: true, message: `Leave approved for ${emp?.name || req.employeeName}.` };
+        toolResult = { success: true, message: `Done! I've approved that leave request for ${emp?.name || req.employeeName}.` };
         break;
       }
 
       // ─── REJECT LEAVE ─────────────────────────────────────────────────────
       case 'rejectLeave': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { employeeName, leaveNumber, remarks } = functionArgs;
 
         const req = await resolvePendingLeave(employeeName, leaveNumber, user.id);
@@ -364,7 +364,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/leaves';
-        toolResult = { success: true, message: `Leave rejected for ${emp?.name || req.employeeName}.` };
+        toolResult = { success: true, message: `I've rejected that leave request for ${emp?.name || req.employeeName} and updated the system.` };
         break;
       }
 
@@ -374,7 +374,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         if (!balance) balance = await LeaveBalance.create({ employeeId: user.id });
         toolResult = {
           success: true,
-          message: `Your leave balance: Casual Leave: ${balance.casualLeave} days, Sick Leave: ${balance.sickLeave} days, Earned Leave: ${balance.earnedLeave} days.`,
+          message: `Here's your leave balance: Casual Leave: ${balance.casualLeave} days, Sick Leave: ${balance.sickLeave} days, and Earned Leave: ${balance.earnedLeave} days.`,
           casualLeave: balance.casualLeave,
           sickLeave: balance.sickLeave,
           earnedLeave: balance.earnedLeave
@@ -392,12 +392,12 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
       // ─── SHOW PENDING REQUESTS ────────────────────────────────────────────
       case 'showPendingRequests': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
 
         const pending = await LeaveRequest.find({ status: 'Pending' }).sort('-createdAt').limit(20).lean();
 
         if (pending.length === 0) {
-          toolResult = { success: true, message: 'No pending leave requests found.' };
+          toolResult = { success: true, message: 'Good news, there are no pending leave requests right now.' };
           break;
         }
 
@@ -414,7 +414,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         const listText = items.map(it => `${it.number}. ${it.label}`).join('\n');
         action = 'NAVIGATE';
         path = '/leaves';
-        toolResult = { success: true, message: `Found ${pending.length} pending requests:\n${listText}\n\nSay "approve number X" or "reject number X" to take action.` };
+        toolResult = { success: true, message: `I found ${pending.length} pending requests:\n${listText}\n\nJust tell me to "approve number X" or "reject number X".` };
         break;
       }
 
@@ -426,7 +426,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         const notifications = await Notification.find({ recipient: user.id }).sort('-createdAt').limit(20).lean();
 
         if (notifications.length === 0) {
-          toolResult = { success: true, message: 'You have no notifications.' };
+          toolResult = { success: true, message: "You're all caught up! No new notifications." };
           break;
         }
 
@@ -444,7 +444,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         const listText = items.map(it => `${it.number}. ${it.label}`).join('\n');
         action = 'NAVIGATE';
         path = '/notifications';
-        toolResult = { success: true, message: `You have ${notifications.length} notifications (${unreadCount} unread):\n${listText}\n\nSay "mark notification X read" to mark one as read.` };
+        toolResult = { success: true, message: `You have ${notifications.length} notifications (${unreadCount} unread):\n${listText}\n\nJust say "mark notification X read" when you're done with one.` };
         break;
       }
 
@@ -521,8 +521,8 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         action = 'NAVIGATE';
         path = '/notifications';
         const summary = markedTitles.length === 1
-          ? `Notification "${markedTitles[0]}" marked as read.`
-          : `${markedTitles.length} notifications marked as read: ${markedTitles.join(', ')}.`;
+          ? `Done, I've marked "${markedTitles[0]}" as read.`
+          : `Done, I've marked ${markedTitles.length} notifications as read.`;
         toolResult = { success: true, message: summary };
         break;
       }
@@ -548,13 +548,13 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/notifications';
-        toolResult = { success: true, message: `All notifications marked as read (${result.modifiedCount} updated).` };
+        toolResult = { success: true, message: `All done! I've marked all ${result.modifiedCount} notifications as read.` };
         break;
       }
 
       // ─── PREPARE EMPLOYEE CREATION (Review Mode) ──────────────────────
       case 'prepareEmployeeCreation': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { firstName, lastName, email, phone, department, designation, role, gender } = functionArgs;
 
         if (!firstName || !lastName) throw new Error('Both first name and last name are required.');
@@ -572,7 +572,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         toolResult = {
           success: true,
-          message: `Here is the employee record for review:\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPhone: ${phone}\nDepartment: ${department}\nDesignation: ${designation}\nRole: ${role || 'Employee'}${gender ? '\nGender: ' + gender : ''}\n\nPlease say "confirm" or "create" to proceed, or "cancel" to discard.`,
+          message: `Here is the new employee record for review:\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPhone: ${phone}\nDepartment: ${department}\nDesignation: ${designation}\nRole: ${role || 'Employee'}${gender ? '\nGender: ' + gender : ''}\n\nDoes this look correct? Say "confirm" to add them, or "cancel" to start over.`,
           pendingReview: true
         };
         break;
@@ -580,7 +580,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
       // ─── SUBMIT EMPLOYEE CREATION (After Review) ──────────────────────
       case 'submitEmployeeCreation': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
 
         const pending = getPendingAction(user.id);
         if (!pending || pending.type !== 'employee') {
@@ -639,14 +639,14 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         path = '/employees';
         toolResult = {
           success: true,
-          message: `Employee created successfully!\nName: ${verified.name}\nID: ${employeeId}\nEmail: ${email}\nDepartment: ${department}\nDesignation: ${designation}\nTemporary Password: ${tempPassword}\nNavigating to employee list.`
+          message: `Great! I've added ${verified.name} to the team and updated the employee directory.\nTheir temporary password is ${tempPassword}.`
         };
         break;
       }
 
       // ─── CREATE EMPLOYEE (Legacy — direct create, kept for backward compat) ──
       case 'createEmployee': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { firstName, lastName, email, phone, department, designation, role, gender } = functionArgs;
 
         if (!firstName || !lastName) throw new Error('Both first name and last name are required.');
@@ -707,14 +707,14 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         path = '/employees';
         toolResult = {
           success: true,
-          message: `Employee created successfully!\nName: ${verified.name}\nID: ${employeeId}\nEmail: ${email}\nDepartment: ${department}\nDesignation: ${designation}\nTemporary Password: ${tempPassword}\nNavigating to employee list.`
+          message: `Great! I've added ${verified.name} to the team and updated the employee directory.\nTheir temporary password is ${tempPassword}.`
         };
         break;
       }
 
       // ─── DELETE EMPLOYEE ──────────────────────────────────────────────────
       case 'deleteEmployee': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { employeeName, employeeNumber } = functionArgs;
 
         const emp = await resolveEmployee(employeeName, employeeNumber, user.id);
@@ -744,13 +744,13 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'NAVIGATE';
         path = '/employees';
-        toolResult = { success: true, message: `Employee ${empName} (${empId}) has been deleted. Navigating to employee list.` };
+        toolResult = { success: true, message: `I've removed ${empName} from the system and updated the employee directory.` };
         break;
       }
 
       // ─── SEARCH EMPLOYEE ──────────────────────────────────────────────────
       case 'searchEmployee': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { query } = functionArgs;
 
         const searchRegex = new RegExp(query, 'i');
@@ -767,7 +767,7 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         }).limit(10).lean();
 
         if (matches.length === 0) {
-          toolResult = { success: true, message: `No employees found matching "${query}".` };
+          toolResult = { success: true, message: `I couldn't find anyone matching "${query}". Want to try another name?` };
           break;
         }
 
@@ -782,13 +782,13 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         listItems = items;
 
         const listText = items.map(it => `${it.number}. ${it.label}`).join('\n');
-        toolResult = { success: true, message: `Found ${matches.length} employee(s):\n${listText}\n\nSay "view number X" or "delete number X" to take action.` };
+        toolResult = { success: true, message: `I found ${matches.length} employees:\n${listText}\n\nLet me know if you'd like to "view number X" or "delete number X".` };
         break;
       }
 
       // ─── VIEW EMPLOYEE ────────────────────────────────────────────────────
       case 'viewEmployee': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         const { employeeName, employeeNumber } = functionArgs;
 
         const emp = await resolveEmployee(employeeName, employeeNumber, user.id);
@@ -797,14 +797,14 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
         path = `/employees/${emp._id}`;
         toolResult = {
           success: true,
-          message: `Employee Details:\nName: ${emp.name}\nID: ${emp.employeeId}\nEmail: ${emp.email}\nPhone: ${emp.phone}\nDepartment: ${emp.department}\nDesignation: ${emp.designation}\nStatus: ${emp.status}\nRole: ${emp.role}`
+          message: `Here are the details for ${emp.name}.\nID: ${emp.employeeId}\nEmail: ${emp.email}\nPhone: ${emp.phone}\nDepartment: ${emp.department}\nDesignation: ${emp.designation}\nRole: ${emp.role}`
         };
         break;
       }
 
       // ─── EXPORT EMPLOYEES EXCEL ───────────────────────────────────────────
       case 'exportEmployeesExcel': {
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
 
         await AuditLog.create({
           action: 'AI Exported Excel',
@@ -814,7 +814,21 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'DOWNLOAD_EXCEL';
         path = '/api/employees/export';
-        toolResult = { success: true, message: 'Exporting employees to Excel. Download will start automatically.' };
+        toolResult = { success: true, message: "I'm generating the Excel file for you now. It should download in just a moment." };
+        break;
+      }
+
+      // ─── DOWNLOAD LEAVE REPORT ─────────────────────────────────────────────
+      case 'downloadLeaveReport': {
+        await AuditLog.create({
+          action: 'AI Exported Leave Report',
+          performedBy: user.id,
+          details: 'Exported leave report to Excel via AI Assistant'
+        });
+
+        action = 'DOWNLOAD_EXCEL';
+        path = '/api/leaves/export';
+        toolResult = { success: true, message: "Your leave report is ready and has been downloaded." };
         break;
       }
 
@@ -830,58 +844,58 @@ export const executeTool = async (functionName, functionArgs, user, command) => 
 
         action = 'TOGGLE_DARK_MODE';
         path = null;
-        toolResult = { success: true, message: `Dark mode has been ${enabled ? 'enabled' : 'disabled'}.`, darkModeEnabled: enabled };
+        toolResult = { success: true, message: `I've ${enabled ? 'turned on' : 'turned off'} dark mode for you.`, darkModeEnabled: enabled };
         break;
       }
 
       // ─── NAVIGATION TOOLS ────────────────────────────────────────────────
       case 'navigateDashboard':
         action = 'NAVIGATE'; path = '/';
-        toolResult = { success: true, message: 'Opening dashboard.' };
+        toolResult = { success: true, message: "Taking you to the dashboard now." };
         break;
 
       case 'navigateProfile':
         action = 'NAVIGATE'; path = '/profile';
-        toolResult = { success: true, message: 'Opening profile.' };
+        toolResult = { success: true, message: "Here's your profile." };
         break;
 
       case 'navigateNotifications':
         action = 'NAVIGATE'; path = '/notifications';
-        toolResult = { success: true, message: 'Opening notifications.' };
+        toolResult = { success: true, message: "Opening your notifications." };
         break;
 
       case 'navigateSettings':
         action = 'NAVIGATE'; path = '/settings';
-        toolResult = { success: true, message: 'Opening settings.' };
+        toolResult = { success: true, message: "Here are your settings." };
         break;
 
       case 'navigateEmployees':
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         action = 'NAVIGATE'; path = '/employees';
-        toolResult = { success: true, message: 'Opening employee directory.' };
+        toolResult = { success: true, message: "Opening the employee directory." };
         break;
 
       case 'navigateLeaveApprovals':
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         action = 'NAVIGATE'; path = '/leaves';
-        toolResult = { success: true, message: 'Opening leave approvals page.' };
+        toolResult = { success: true, message: "Here's the leave approvals page." };
         break;
 
       case 'navigateAuditLogs':
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         action = 'NAVIGATE'; path = '/audit-logs';
-        toolResult = { success: true, message: 'Opening system audit logs.' };
+        toolResult = { success: true, message: "Opening the system audit logs." };
         break;
 
       case 'navigateAIHistory':
-        if (user.role !== 'Admin') throw new Error('Sorry, you do not have permission to perform this action.');
+        if (user.role !== 'Admin') throw new Error('Sorry, only administrators can perform that action.');
         action = 'NAVIGATE'; path = '/ai-history';
-        toolResult = { success: true, message: 'Opening AI command history.' };
+        toolResult = { success: true, message: "Here's the AI command history." };
         break;
 
       case 'navigateApplyLeave':
         action = 'NAVIGATE'; path = '/leaves/apply';
-        toolResult = { success: true, message: 'Opening leave application form.' };
+        toolResult = { success: true, message: "I've opened the leave application form for you." };
         break;
 
       // ─── PERFORM LOGOUT ─────────────────────────────────────────────────

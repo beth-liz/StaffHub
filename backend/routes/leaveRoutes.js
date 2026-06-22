@@ -4,6 +4,7 @@ import {
   getLeaves,
   updateLeaveStatus,
   getLeaveBalance,
+  exportLeaves,
 } from '../controllers/leaveController.js';
 import { protect, authorize } from '../middleware/auth.js';
 import uploadAttachment from '../middleware/uploadAttachment.js';
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // All routes require login
 router.use(protect);
+
+// Export route — must precede :id routes
+router.route('/export').get(exportLeaves);
 
 router
   .route('/')

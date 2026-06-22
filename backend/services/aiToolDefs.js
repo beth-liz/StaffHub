@@ -58,6 +58,14 @@ const sharedTools = [
   {
     type: 'function',
     function: {
+      name: 'downloadLeaveReport',
+      description: 'Download or export the leave report/leave history as an Excel file.',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'toggleDarkMode',
       description: 'Toggle dark mode on or off for the UI.',
       parameters: {

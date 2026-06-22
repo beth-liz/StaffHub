@@ -164,8 +164,13 @@ const AIAssistant = () => {
           detail: { enabled: !document.documentElement.classList.contains('dark') }
         }));
       } else if (res.action === 'DOWNLOAD_EXCEL' && res.path) {
-        const url = `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}${res.path}`;
-        window.open(url, '_blank');
+        if (res.path === '/api/leaves/export') {
+          const { exportLeaveReport } = await import('../services/api');
+          await exportLeaveReport();
+        } else if (res.path === '/api/employees/export') {
+          const { exportEmployees } = await import('../services/api');
+          await exportEmployees();
+        }
       } else if (res.action === 'LOGOUT') {
         const goodbyeMsg = res.speechResponse || `Goodbye ${user?.name}! See you next time.`;
         speakText(goodbyeMsg);

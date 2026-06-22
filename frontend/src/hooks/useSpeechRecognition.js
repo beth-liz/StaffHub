@@ -88,7 +88,7 @@ const useSpeechRecognition = ({
     silenceTimerRef.current = setTimeout(() => {
       // Silence timeout — stop gracefully so onend fires
       if (recognitionRef.current && isListeningRef.current) {
-        console.log('[SpeechRecognition] Silence timeout (15s) reached — stopping naturally');
+        console.log('[SpeechRecognition] Silence timeout (3s) reached — stopping naturally');
         manualStopRef.current = true;
         recognitionRef.current.stop();
       }
@@ -162,17 +162,17 @@ const useSpeechRecognition = ({
 
     const recognition = new SpeechRecognitionClass();
 
+    const SILENCE_TIMEOUT_MS = 3000; // User requested 3000ms silence threshold
+
     // ── Configuration ─────────────────────────────────────────────────────
-    recognition.continuous      = true;   // don't auto-stop on first pause
-    recognition.interimResults  = true;   // live partial results
+    recognition.continuous      = true;
+    recognition.interimResults  = true;
     recognition.maxAlternatives = 1;
     recognition.lang            = lang;
 
     // ── Handlers ──────────────────────────────────────────────────────────
     recognition.onstart = () => {
       isListeningRef.current = true;
-      // Do NOT wipe finalTranscriptRef here, because auto-restarts need to append text.
-      // Wiping is handled exclusively in startListening().
       setError(null);
       setStatus(RECOGNITION_STATUS.LISTENING);
       resetSilenceTimer();
@@ -190,9 +190,7 @@ const useSpeechRecognition = ({
         const text   = result[0].transcript;
         if (result.isFinal) {
           final += text;
-          console.log(
-            `[SpeechRecognition] Final segment: "${text}" (confidence: ${(result[0].confidence * 100).toFixed(1)}%)`
-          );
+          console.log(`[SpeechRecognition] Final segment: "${text}"`);
         } else {
           interim += text;
         }
@@ -201,7 +199,7 @@ const useSpeechRecognition = ({
       if (interim) setInterimTranscript(interim);
 
       if (final) {
-        // Accumulate final segments (continuous mode produces multiple final results)
+        // Accumulate final segments
         finalTranscriptRef.current = (finalTranscriptRef.current + ' ' + final).trim();
         setTranscript(finalTranscriptRef.current);
         setInterimTranscript('');
@@ -212,19 +210,6 @@ const useSpeechRecognition = ({
       const err = event.error;
       console.warn('[SpeechRecognition] Error:', err);
 
-      // If we've already stopped listening, ignore ghost errors (like trailing network errors)
-      if (!isListeningRef.current) {
-        console.warn('[SpeechRecognition] Error fired after listening stopped — completely ignoring ghost error');
-        return;
-      }
-
-      clearSilenceTimer();
-
-      if (err === 'aborted') {
-        // Intentional stop — don't retry
-        return;
-      }
-
       if (err === 'not-allowed' || err === 'service-not-allowed') {
         manualStopRef.current = true;
         isListeningRef.current = false;
@@ -234,84 +219,49 @@ const useSpeechRecognition = ({
         return;
       }
 
-      if (err === 'network') {
-        // IMPORTANT: Chrome (and Edge) often fire a spurious 'network' onerror
-        // AFTER a successful recognition result, right before onend fires.
-        // If we already have a captured transcript, this error is a false positive —
-        // suppress it entirely. The onend handler will deliver the result normally.
-        if (finalTranscriptRef.current.trim()) {
-          console.warn('[SpeechRecognition] Network error fired but transcript already captured — suppressing false positive');
-          return;
-        }
-        console.warn('[SpeechRecognition] Genuine network error — deferring to Whisper fallback');
-        pendingErrorRef.current = 'Network error. Check your internet connection.';
-        manualStopRef.current = true;
-        isListeningRef.current = false;
-        stopAudioCapture();
-        return;
+      // For all other errors (network, aborted, no-speech), we simply ignore them
+      // and let onend handle the auto-restart, UNLESS the user stopped manually.
+      if (!manualStopRef.current) {
+        console.warn(`[SpeechRecognition] Non-fatal error '${err}' ignored. Will auto-restart.`);
       }
-
-      if (err === 'no-speech' || err === 'audio-capture') {
-        // If the user hasn't explicitly stopped (e.g. silence timer hasn't fired),
-        // we should just infinitely auto-restart to simulate continuous listening.
-        if (!manualStopRef.current) {
-          console.log('[SpeechRecognition] no-speech detected, auto-restarting to keep listening...');
-          setTimeout(() => {
-            try { recognition.start(); } catch {}
-          }, 300);
-          return;
-        }
-
-        pendingErrorRef.current = 'No speech detected. Please try again.';
-        isListeningRef.current = false;
-        stopAudioCapture();
-        return;
-      }
-
-      // Unknown error — defer to Whisper
-      pendingErrorRef.current = err;
-      manualStopRef.current = true;
-      isListeningRef.current = false;
-      stopAudioCapture();
     };
 
     recognition.onend = async () => {
-      if (!manualStopRef.current && isListeningRef.current) {
-        // Browser's VAD stopped recognition early due to a natural pause,
-        // but our 15s silence timeout hasn't fired yet!
-        // We must auto-restart to allow the user to speak long sentences with pauses.
-        console.log('[SpeechRecognition] Browser VAD stopped early. Auto-restarting to reach 15s silence timeout...');
-        try {
-          recognition.start();
-        } catch { /* ignore if already started */ }
+      if (!manualStopRef.current) {
+        // Browser VAD stopped early or an error occurred, but the user hasn't 
+        // stopped manually and the 3s silence timer hasn't fired yet!
+        // We must auto-restart to accumulate the full sentence.
+        console.log('[SpeechRecognition] Browser stopped early. Auto-restarting to enforce silence timeout...');
+        setTimeout(() => {
+          if (!manualStopRef.current) {
+            try { recognition.start(); } catch { /* ignore */ }
+          }
+        }, 100); // slight delay to prevent rapid crash loops
         return;
       }
 
+      // ── Valid Stop (Manual or Silence Timer) ──
       clearSilenceTimer();
       isListeningRef.current = false;
       stopAudioCapture();
       setInterimTranscript('');
 
       const finalText = finalTranscriptRef.current.trim();
-      console.log('[SpeechRecognition] Ended. Final transcript:', finalText || '(empty)');
+      console.log('[SpeechRecognition] Ended gracefully. Final transcript:', finalText || '(empty)');
 
       if (finalText) {
         setStatus(RECOGNITION_STATUS.RECOGNIZED);
-        // Small buffer so React state is flushed before callback
         setTimeout(() => {
           onTranscriptReadyRef.current?.(finalText);
         }, 50);
       } else {
-        // No text from browser STT. Let's try Whisper!
         console.log('[SpeechRecognition] No final text from browser. Running Whisper fallback...');
         const whisperText = await tryWhisperFallback();
         if (!whisperText) {
-          // Whisper also failed. Now we can safely surface the pending error.
-          setError(pendingErrorRef.current || 'No speech detected. Please try again.');
+          setError('No speech detected. Please try again.');
           setStatus(RECOGNITION_STATUS.FAILED);
         } else {
-          console.log('[SpeechRecognition] Whisper fallback succeeded! Suppressing browser errors.');
-          // Error completely suppressed. onTranscriptReady already fired inside tryWhisperFallback.
+          console.log('[SpeechRecognition] Whisper fallback succeeded!');
         }
       }
     };

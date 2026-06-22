@@ -1,7 +1,7 @@
 /**
  * Local Intent Engine — Fallback Natural Language Processor
  *
- * Used when Groq API is unavailable.
+ * Used when OpenAI API is unavailable.
  * Matches keywords and executes the same `aiToolExecutor` methods as the main engine.
  */
 
@@ -9,36 +9,160 @@ import { executeTool } from './aiToolExecutor.js';
 import { getSlotSession, setSlotSession, clearSlotSession, addToHistory } from './aiSessionManager.js';
 import AIInteractionLog from '../models/AIInteractionLog.js';
 
-// Simple relative date parsing helpers
-const parseRelativeDate = (text) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const clean = text.toLowerCase().trim();
-
-  if (clean.includes('tomorrow')) {
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    return tomorrow;
-  }
-
-  if (clean.includes('next monday')) {
-    const nextMonday = new Date(today);
-    const day = today.getDay();
-    const daysUntilNextMonday = (1 + 7 - day) % 7 || 7;
-    nextMonday.setDate(today.getDate() + daysUntilNextMonday);
-    return nextMonday;
-  }
-
-  const yyyymmdd = clean.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (yyyymmdd) {
-    return new Date(yyyymmdd[0]);
-  }
-
-  return today;
+// ─── Month Name Map ───────────────────────────────────────────────────────────
+const MONTH_MAP = {
+  january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2,
+  april: 3, apr: 3, may: 4, june: 5, jun: 5, july: 6, jul: 6,
+  august: 7, aug: 7, september: 8, sep: 8, sept: 8, october: 9, oct: 9,
+  november: 10, nov: 10, december: 11, dec: 11
 };
 
-// Extract leave type from text
+// ─── Day Name Map ─────────────────────────────────────────────────────────────
+const DAY_MAP = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6
+};
+
+// ─── Parse a single date expression ──────────────────────────────────────────
+const parseSingleDate = (text) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const clean = text.toLowerCase().trim();
+
+  // "today"
+  if (clean === 'today') return new Date(today);
+
+  // "tomorrow"
+  if (clean === 'tomorrow') {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+
+  // "day after tomorrow"
+  if (clean.includes('day after tomorrow')) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 2);
+    return d;
+  }
+
+  // "next <day>" e.g. "next monday", "next wednesday"
+  for (const [dayName, dayNum] of Object.entries(DAY_MAP)) {
+    if (clean.includes('next ' + dayName) || clean === dayName) {
+      const d = new Date(today);
+      const current = d.getDay();
+      const daysUntil = (dayNum + 7 - current) % 7 || 7;
+      d.setDate(d.getDate() + daysUntil);
+      return d;
+    }
+  }
+
+  // "23 July" or "July 23" or "23 july 2026"
+  for (const [monthName, monthNum] of Object.entries(MONTH_MAP)) {
+    // "23 July" / "23 July 2026"
+    const pattern1 = new RegExp(`(\\d{1,2})\\s+${monthName}(?:\\s+(\\d{4}))?`, 'i');
+    const m1 = clean.match(pattern1);
+    if (m1) {
+      const year = m1[2] ? parseInt(m1[2]) : today.getFullYear();
+      return new Date(year, monthNum, parseInt(m1[1]));
+    }
+    // "July 23" / "July 23 2026"
+    const pattern2 = new RegExp(`${monthName}\\s+(\\d{1,2})(?:\\s+(\\d{4}))?`, 'i');
+    const m2 = clean.match(pattern2);
+    if (m2) {
+      const year = m2[2] ? parseInt(m2[2]) : today.getFullYear();
+      return new Date(year, monthNum, parseInt(m2[1]));
+    }
+  }
+
+  // YYYY-MM-DD
+  const iso = clean.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(iso[0]);
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmy = clean.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]));
+
+  return null;
+};
+
+// ─── Parse a date range from natural text ────────────────────────────────────
+const parseDateRange = (text) => {
+  const clean = text.toLowerCase().trim();
+
+  // "from X to Y" / "from X till Y"
+  const fromTo = clean.match(/from\s+(.+?)\s+(?:to|till|until)\s+(.+?)(?:\s+because|\s+due|\s+as\s+i|\s+since|\s+for\s+a|\s*$)/i);
+  if (fromTo) {
+    const start = parseSingleDate(fromTo[1]);
+    const end = parseSingleDate(fromTo[2]);
+    if (start && end) return { startDate: start, endDate: end };
+  }
+
+  // "X to Y" without "from" (e.g., "23 July to 25 July")
+  const xToY = clean.match(/(\d{1,2}\s+\w+(?:\s+\d{4})?)\s+to\s+(\d{1,2}\s+\w+(?:\s+\d{4})?)/i);
+  if (xToY) {
+    const start = parseSingleDate(xToY[1]);
+    const end = parseSingleDate(xToY[2]);
+    if (start && end) return { startDate: start, endDate: end };
+  }
+
+  // "for X days starting Y" / "for X days from Y"
+  const forDays = clean.match(/for\s+(\d+|two|three|four|five)\s+days?\s+(?:starting|from)\s+(.+)/i);
+  if (forDays) {
+    const numMap = { two: 2, three: 3, four: 4, five: 5 };
+    const count = numMap[forDays[1]] || parseInt(forDays[1]);
+    const start = parseSingleDate(forDays[2]);
+    if (start && count) {
+      const end = new Date(start);
+      end.setDate(start.getDate() + count - 1);
+      return { startDate: start, endDate: end };
+    }
+  }
+
+  // "next week" = Monday to Friday
+  if (clean.includes('next week')) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const current = today.getDay();
+    const daysUntilMonday = (1 + 7 - current) % 7 || 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + daysUntilMonday);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    return { startDate: monday, endDate: friday };
+  }
+
+  // Single date mentions
+  if (clean.includes('tomorrow')) {
+    const d = parseSingleDate('tomorrow');
+    return { startDate: d, endDate: d };
+  }
+
+  if (clean.includes('day after tomorrow')) {
+    const d = parseSingleDate('day after tomorrow');
+    return { startDate: d, endDate: d };
+  }
+
+  // "next <day>" as single-day leave
+  for (const dayName of Object.keys(DAY_MAP)) {
+    if (clean.includes('next ' + dayName)) {
+      const d = parseSingleDate('next ' + dayName);
+      if (d) return { startDate: d, endDate: d };
+    }
+  }
+
+  // Try parsing any date-looking substring
+  for (const monthName of Object.keys(MONTH_MAP)) {
+    if (clean.includes(monthName)) {
+      const d = parseSingleDate(clean);
+      if (d) return { startDate: d, endDate: d };
+    }
+  }
+
+  return null;
+};
+
+// ─── Extract leave type from text ─────────────────────────────────────────────
 const extractLeaveType = (text) => {
   const clean = text.toLowerCase();
   if (clean.includes('sick')) return 'Sick Leave';
@@ -47,6 +171,29 @@ const extractLeaveType = (text) => {
   if (clean.includes('wfh') || clean.includes('work from home')) return 'Work From Home';
   if (clean.includes('emergency')) return 'Emergency Leave';
   if (clean.includes('loss of pay') || clean.includes('lop')) return 'Loss Of Pay';
+  return null;
+};
+
+// ─── Extract reason from text ─────────────────────────────────────────────────
+const extractReason = (text) => {
+  const clean = text.toLowerCase();
+  const reasonKeywords = [
+    'because of', 'because i', 'because',
+    'due to', 'as i am', 'as i have', 'as i',
+    'since i am', 'since i have', 'since i', 'since',
+    'for a', 'for my',
+    'i have a', 'i am not', 'i am',
+    'i need to', 'i have to'
+  ];
+  for (const kw of reasonKeywords) {
+    const idx = clean.indexOf(kw);
+    if (idx !== -1) {
+      let reason = text.slice(idx + kw.length).trim();
+      // Clean up trailing punctuation
+      reason = reason.replace(/[.!]+$/, '').trim();
+      if (reason.length > 2) return reason;
+    }
+  }
   return null;
 };
 
@@ -98,25 +245,32 @@ export const runLocalIntentEngine = async ({ command, user }) => {
           slotSession.slots.leaveType = extracted;
           slotSession.waitingFor = null;
         }
+        // Also check if user provided more info in this turn
+        const reason = extractReason(command);
+        if (reason && !slotSession.slots.reason) slotSession.slots.reason = reason;
+        const dates = parseDateRange(command);
+        if (dates && !slotSession.slots.startDate) {
+          slotSession.slots.startDate = dates.startDate;
+          slotSession.slots.endDate = dates.endDate;
+        }
       } else if (waiting === 'dates') {
-        if (cleanCommand.includes('tomorrow')) {
-          const tom = parseRelativeDate('tomorrow');
-          slotSession.slots.startDate = tom;
-          slotSession.slots.endDate = tom;
-          slotSession.waitingFor = null;
-        } else if (cleanCommand.includes('monday to wednesday')) {
-          const start = parseRelativeDate('next monday');
-          const end = new Date(start);
-          end.setDate(start.getDate() + 2); // Wednesday
-          slotSession.slots.startDate = start;
-          slotSession.slots.endDate = end;
+        const dates = parseDateRange(command);
+        if (dates) {
+          slotSession.slots.startDate = dates.startDate;
+          slotSession.slots.endDate = dates.endDate;
           slotSession.waitingFor = null;
         } else {
-          const date = parseRelativeDate(command);
-          slotSession.slots.startDate = date;
-          slotSession.slots.endDate = date;
-          slotSession.waitingFor = null;
+          // Try single date
+          const d = parseSingleDate(command);
+          if (d) {
+            slotSession.slots.startDate = d;
+            slotSession.slots.endDate = d;
+            slotSession.waitingFor = null;
+          }
         }
+        // Also check for reason in this turn
+        const reason = extractReason(command);
+        if (reason && !slotSession.slots.reason) slotSession.slots.reason = reason;
       } else if (waiting === 'reason') {
         slotSession.slots.reason = command.trim();
         slotSession.waitingFor = null;
@@ -215,8 +369,13 @@ export const runLocalIntentEngine = async ({ command, user }) => {
   }
 
   // Excel Export
-  if (cleanCommand.includes('export') && cleanCommand.includes('excel')) {
-    return await handleToolExecution('exportEmployeesExcel', {}, user, command);
+  if (cleanCommand.includes('export') || cleanCommand.includes('download')) {
+    if (cleanCommand.includes('leave') || cleanCommand.includes('history') || cleanCommand.includes('log')) {
+      return await handleToolExecution('downloadLeaveReport', {}, user, command);
+    }
+    if (cleanCommand.includes('excel') || cleanCommand.includes('employee')) {
+      return await handleToolExecution('exportEmployeesExcel', {}, user, command);
+    }
   }
 
   // Delete Employee
@@ -254,46 +413,36 @@ export const runLocalIntentEngine = async ({ command, user }) => {
     }
   }
 
-  // Apply Leave (Starts Slot Filling)
+  // ─── Apply Leave (full single-sentence + slot filling) ────────────────────
   if (
     cleanCommand.includes('apply leave') ||
+    cleanCommand.includes('apply for leave') ||
+    cleanCommand.includes('apply a leave') ||
     cleanCommand.includes('need leave') ||
+    cleanCommand.includes('need a leave') ||
+    cleanCommand.includes('take leave') ||
+    cleanCommand.includes('take a leave') ||
     cleanCommand.includes('apply sick') ||
-    cleanCommand.includes('apply casual')
+    cleanCommand.includes('apply casual') ||
+    cleanCommand.includes('apply earned') ||
+    cleanCommand.includes('apply emergency') ||
+    cleanCommand.includes('sick leave') ||
+    cleanCommand.includes('casual leave') ||
+    cleanCommand.includes('earned leave')
   ) {
+    // Extract everything we can from this single sentence
     const leaveType = extractLeaveType(command);
-    let startDate = null;
-    let endDate = null;
-
-    if (cleanCommand.includes('tomorrow')) {
-      const tom = parseRelativeDate('tomorrow');
-      startDate = tom;
-      endDate = tom;
-    } else if (cleanCommand.includes('next monday')) {
-      const mon = parseRelativeDate('next monday');
-      startDate = mon;
-      endDate = mon;
-    } else if (cleanCommand.includes('next week')) {
-      const mon = parseRelativeDate('next monday');
-      const fri = new Date(mon);
-      fri.setDate(mon.getDate() + 4);
-      startDate = mon;
-      endDate = fri;
-    }
-
-    let reason = null;
-    const reasonKeywords = ['because of', 'because', 'due to', 'as i', 'since i', 'for a'];
-    for (const kw of reasonKeywords) {
-      const idx = cleanCommand.indexOf(kw);
-      if (idx !== -1) {
-        reason = command.slice(idx + kw.length).trim();
-        break;
-      }
-    }
+    const dateRange = parseDateRange(command);
+    const reason = extractReason(command);
 
     const session = {
       intent: 'APPLY_LEAVE',
-      slots: { leaveType, startDate, endDate, reason },
+      slots: {
+        leaveType,
+        startDate: dateRange?.startDate || null,
+        endDate: dateRange?.endDate || null,
+        reason
+      },
       waitingFor: null
     };
 
@@ -340,40 +489,55 @@ const handleToolExecution = async (functionName, args, user, command) => {
   };
 };
 
-// Process leave application slots
+// Process leave application slots — asks for ALL missing fields at once
 const processApplyLeaveSession = async (session, user, command) => {
   const userId = user.id.toString();
 
-  if (!session.slots.leaveType) {
-    session.waitingFor = 'leaveType';
-    const resp = "What type of leave would you like?";
-    addToHistory(userId, 'assistant', resp);
-    return { success: true, intent: 'APPLY_LEAVE', speechResponse: resp };
+  // Collect all missing fields
+  const missing = [];
+  if (!session.slots.leaveType) missing.push('leaveType');
+  if (!session.slots.startDate || !session.slots.endDate) missing.push('dates');
+  if (!session.slots.reason) missing.push('reason');
+
+  // If nothing is missing, execute!
+  if (missing.length === 0) {
+    clearSlotSession(userId);
+    
+    const args = {
+      leaveType: session.slots.leaveType,
+      startDate: session.slots.startDate.toISOString().split('T')[0],
+      endDate: session.slots.endDate.toISOString().split('T')[0],
+      reason: session.slots.reason
+    };
+
+    return await handleToolExecution('applyLeave', args, user, command);
   }
 
-  if (!session.slots.startDate || !session.slots.endDate) {
-    session.waitingFor = 'dates';
-    const resp = "Which dates should I use for your leave?";
-    addToHistory(userId, 'assistant', resp);
-    return { success: true, intent: 'APPLY_LEAVE', speechResponse: resp };
+  // Build a friendly prompt asking for ALL missing fields at once
+  session.waitingFor = missing[0]; // track what we're waiting for (first priority)
+
+  const parts = [];
+  if (missing.includes('leaveType')) parts.push('what type of leave you would like to apply for');
+  if (missing.includes('dates')) parts.push('when you would like the leave to begin and end');
+  if (missing.includes('reason')) parts.push('the reason for the leave');
+
+  // Build contextual, friendly response
+  const collected = [];
+  if (session.slots.leaveType) collected.push(session.slots.leaveType);
+  if (session.slots.startDate) {
+    const startStr = session.slots.startDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const endStr = session.slots.endDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    collected.push(startStr === endStr ? `on ${startStr}` : `from ${startStr} to ${endStr}`);
+  }
+  if (session.slots.reason) collected.push(`for "${session.slots.reason}"`);
+
+  let resp;
+  if (collected.length > 0) {
+    resp = `Got it — ${collected.join(', ')}. Could you also tell me ${parts.join(' and ')}?`;
+  } else {
+    resp = `Sure, I can help with that! Could you tell me ${parts.join(', ')}?`;
   }
 
-  if (!session.slots.reason) {
-    session.waitingFor = 'reason';
-    const resp = "What is the reason?";
-    addToHistory(userId, 'assistant', resp);
-    return { success: true, intent: 'APPLY_LEAVE', speechResponse: resp };
-  }
-
-  // All slots present! Apply leave
-  clearSlotSession(userId);
-  
-  const args = {
-    leaveType: session.slots.leaveType,
-    startDate: session.slots.startDate.toISOString().split('T')[0],
-    endDate: session.slots.endDate.toISOString().split('T')[0],
-    reason: session.slots.reason
-  };
-
-  return await handleToolExecution('applyLeave', args, user, command);
+  addToHistory(userId, 'assistant', resp);
+  return { success: true, intent: 'APPLY_LEAVE', speechResponse: resp };
 };

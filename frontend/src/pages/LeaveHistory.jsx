@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeaveHistory, updateLeaveStatus } from '../services/api';
+import { getLeaveHistory, updateLeaveStatus, exportLeaveReport } from '../services/api';
 import { TableSkeleton } from '../components/SkeletonLoader';
 import { 
   FileText, 
@@ -30,6 +30,7 @@ const LeaveHistory = () => {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
   // Leave Approval Panel State
   const [activeRequest, setActiveRequest] = useState(null);
@@ -68,6 +69,25 @@ const LeaveHistory = () => {
       toast.error('Could not load leave records.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    const toastId = toast.loading('Generating Leave Report...');
+    try {
+      const params = {
+        ...(leaveType && { leaveType }),
+        ...(status && { status }),
+        ...(isAdmin && search.trim() && { search }),
+      };
+      await exportLeaveReport(params);
+      toast.success('Leave report downloaded successfully!', { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to export leave report', { id: toastId });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -129,6 +149,14 @@ const LeaveHistory = () => {
               List of applied time-off applications and workflow status indexes.
             </p>
           </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+          >
+            <Download size={14} />
+            {exporting ? 'Exporting...' : 'Export Leave Report'}
+          </button>
         </div>
 
         {/* Filters and Search toolbar */}
