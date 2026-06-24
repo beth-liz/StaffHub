@@ -366,26 +366,39 @@ const Landing = () => {
       </section>
 
       {/* Statistics Section */}
-      <section id="stats" className="py-20 bg-brand-600 text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMSIgY3k9IjEiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4xKSIvPjwvc3ZnPg==')] opacity-50" />
+      <section id="stats" className="relative py-24 lg:py-32 bg-slate-950 border-t border-slate-800 overflow-hidden">
+        {/* Background Image & Gradient */}
+        <div 
+          className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-5 mix-blend-luminosity"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950" />
         
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 text-center">
-            <div className="bg-brand-700/30 backdrop-blur-sm p-6 rounded-3xl border border-brand-500/30">
-              <div className="text-4xl md:text-5xl font-black mb-2 tracking-tight">10k+</div>
-              <div className="text-brand-100 font-semibold text-xs uppercase tracking-wider">Employees Managed</div>
+          <div className="text-center mb-16 animate-fade-in">
+            <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-4 tracking-tight">
+              Trusted By Growing Organizations
+            </h2>
+            <p className="text-lg text-slate-400">
+              Intelligent workforce management powered by AI.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 text-center">
+            <div className="bg-white/5 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className="text-4xl md:text-5xl font-black mb-3 text-white tracking-tight">10k+</div>
+              <div className="text-slate-400 font-semibold text-xs uppercase tracking-widest">Employees Managed</div>
             </div>
-            <div className="bg-brand-700/30 backdrop-blur-sm p-6 rounded-3xl border border-brand-500/30">
-              <div className="text-4xl md:text-5xl font-black mb-2 tracking-tight">50k+</div>
-              <div className="text-brand-100 font-semibold text-xs uppercase tracking-wider">Leave Requests</div>
+            <div className="bg-white/5 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className="text-4xl md:text-5xl font-black mb-3 text-white tracking-tight">50k+</div>
+              <div className="text-slate-400 font-semibold text-xs uppercase tracking-widest">Leave Requests</div>
             </div>
-            <div className="bg-brand-700/30 backdrop-blur-sm p-6 rounded-3xl border border-brand-500/30">
-              <div className="text-4xl md:text-5xl font-black mb-2 tracking-tight">100+</div>
-              <div className="text-brand-100 font-semibold text-xs uppercase tracking-wider">Reports Generated</div>
+            <div className="bg-white/5 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className="text-4xl md:text-5xl font-black mb-3 text-white tracking-tight">100+</div>
+              <div className="text-slate-400 font-semibold text-xs uppercase tracking-widest">Reports Generated</div>
             </div>
-            <div className="bg-brand-700/30 backdrop-blur-sm p-6 rounded-3xl border border-brand-500/30">
-              <div className="text-4xl md:text-5xl font-black mb-2 tracking-tight">1M+</div>
-              <div className="text-brand-100 font-semibold text-xs uppercase tracking-wider">AI Actions</div>
+            <div className="bg-white/5 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className="text-4xl md:text-5xl font-black mb-3 text-white tracking-tight">1M+</div>
+              <div className="text-slate-400 font-semibold text-xs uppercase tracking-widest">AI Actions</div>
             </div>
           </div>
         </div>
