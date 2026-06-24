@@ -293,8 +293,5 @@ The app opens at **http://localhost:5173** — you'll be redirected to `/login` 
 | `npm run build` | Build for production |
 | `npm run preview` | Preview production build |
 
----
 
-## 📄 License
 
-MIT License — feel free to use this project for personal or commercial purposes.
