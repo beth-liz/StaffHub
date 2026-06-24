@@ -171,7 +171,7 @@ const Login = () => {
             <Briefcase size={32} />
           </div>
           <h1 className="text-5xl font-extrabold text-white tracking-tight mb-6 leading-tight animate-fade-in" style={{ animationDelay: '100ms' }}>
-            StaffHub HRMS v2
+            StaffHub HRMS
           </h1>
           <p className="text-xl text-slate-300 mb-12 leading-relaxed animate-fade-in" style={{ animationDelay: '200ms' }}>
             AI-Powered Employee & Leave Management System. Manage employees, automate leave workflows, generate reports, and interact through intelligent voice commands.
