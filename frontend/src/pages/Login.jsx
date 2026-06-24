@@ -156,6 +156,17 @@ const Login = () => {
   return (
     <div className="min-h-screen flex bg-slate-900 select-none">
       
+      {/* ── Back to Home Button ── */}
+      <div className="absolute top-6 left-6 z-50">
+        <button 
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 hover:bg-brand-600 backdrop-blur-md text-white text-sm font-semibold rounded-full border border-slate-700/50 hover:border-brand-500 transition-all shadow-lg"
+        >
+          <ChevronLeft size={16} />
+          Back to Home
+        </button>
+      </div>
+
       {/* ── Left Panel (Desktop) ── */}
       <div className="hidden lg:flex w-1/2 relative bg-slate-900 items-center justify-center overflow-hidden">
         {/* Background Image */}
