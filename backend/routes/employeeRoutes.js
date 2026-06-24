@@ -8,6 +8,7 @@ import {
   deleteEmployee,
   getStats,
   exportEmployees,
+  exportEmployeeLeaveReport,
   uploadAvatar,
 } from '../controllers/employeeController.js';
 import upload from '../middleware/upload.js';
@@ -68,6 +69,8 @@ router
   .get(getEmployeeById)
   .put(updateEmployee)
   .delete(authorize('Admin'), deleteEmployee);
+
+router.route('/:id/leave-report').get(authorize('Admin'), exportEmployeeLeaveReport);
 
 // Avatar upload — single file field named "avatar"
 router.route('/:id/upload-avatar').post(

@@ -203,6 +203,30 @@ export const exportLeaveReport = async (params = {}) => {
   window.URL.revokeObjectURL(url);
 };
 
+export const exportEmployeeLeaveReport = async (id, employeeName) => {
+  const response = await api.get(`/employees/${id}/leave-report`, {
+    responseType: 'blob',
+  });
+
+  const url = window.URL.createObjectURL(
+    new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+  );
+  const link = document.createElement('a');
+  link.href = url;
+  const disposition = response.headers['content-disposition'];
+  const safeName = employeeName ? employeeName.replace(/[^a-zA-Z0-9]/g, '_') : 'Employee';
+  const filename = disposition
+    ? disposition.split('filename=')[1]?.replace(/"/g, '')
+    : `${safeName}_Leave_Report.xlsx`;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 // ─── Dashboard Services ───────────────────────────────────────────────────────
 export const getDashboardData = async () => {
   const response = await withRetry(() => api.get('/dashboard'));

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { getEmployees, deleteEmployee, exportEmployees, updateEmployee } from '../services/api';
+import { getEmployees, deleteEmployee, exportEmployees, exportEmployeeLeaveReport, updateEmployee } from '../services/api';
 import ConfirmModal from '../components/ConfirmModal';
 import SortableHeader from '../components/SortableHeader';
 import { TableSkeleton } from '../components/SkeletonLoader';
@@ -22,7 +22,8 @@ import {
   Download,
   Key,
   Layers,
-  UserCheck
+  UserCheck,
+  FileText
 } from 'lucide-react';
 
 const DEPARTMENTS = [
@@ -188,6 +189,17 @@ const EmployeeList = () => {
       toast.error(err.displayMessage || 'Failed to export employee data.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleExportLeaveReport = async (emp) => {
+    try {
+      toast.loading(`Generating leave report for ${emp.name}...`, { id: `export-${emp._id}` });
+      await exportEmployeeLeaveReport(emp._id, emp.name);
+      toast.success('Leave report downloaded successfully.', { id: `export-${emp._id}` });
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to download leave report.', { id: `export-${emp._id}` });
     }
   };
 
@@ -476,6 +488,13 @@ const EmployeeList = () => {
                               title="Reset Password"
                             >
                               <Key size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleExportLeaveReport(emp)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                              title="Download Leave Report"
+                            >
+                              <FileText size={14} />
                             </button>
                             <button
                               onClick={() => handleDeleteClick(emp)}

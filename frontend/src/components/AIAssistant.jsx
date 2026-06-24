@@ -106,7 +106,7 @@ const AIAssistant = () => {
       setMessages([{
         id: Date.now().toString(),
         sender: 'ai',
-        text: `Hi ${user.name}, I'm your AI HR Assistant. How can I help you today?`,
+        text: `Hi ${user.name}, I'm Nova, your AI HR Assistant. How can I help you today?`,
         timestamp: new Date().toISOString()
       }]);
     }
@@ -305,7 +305,7 @@ const AIAssistant = () => {
 
       {/* Chat Window */}
       <div
-        className={`fixed bottom-6 right-6 w-[380px] h-[560px] max-h-[85vh] max-w-[calc(100vw-3rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 transform origin-bottom-right z-50 border border-slate-200 dark:border-slate-800 ${
+        className={`fixed bottom-6 right-6 w-[380px] h-[560px] max-h-[85vh] max-w-[calc(100vw-3rem)] bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl flex flex-col transition-all duration-300 transform origin-bottom-right z-50 border border-white/40 dark:border-slate-700/50 ${
           isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none'
         }`}
       >
@@ -326,7 +326,7 @@ const AIAssistant = () => {
               </div>
             </div>
             <div>
-              <h3 className="font-bold text-sm text-slate-800 dark:text-white">StaffHub Assistant</h3>
+              <h3 className="font-bold text-sm text-slate-800 dark:text-white">Nova AI Assistant</h3>
               <p className={`text-[10px] flex items-center gap-1 ${currentStatusCfg.color}`}>
                 {currentStatusCfg.label}
               </p>
@@ -357,7 +357,7 @@ const AIAssistant = () => {
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                   msg.sender === 'user'
                     ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20 rounded-br-sm'
-                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-sm border border-slate-100 dark:border-slate-700 rounded-bl-sm'
+                    : 'bg-white/60 dark:bg-slate-800/60 backdrop-blur-md text-slate-700 dark:text-slate-200 shadow-sm border border-slate-200/50 dark:border-slate-700/50 rounded-bl-sm'
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.text}</p>
@@ -402,7 +402,7 @@ const AIAssistant = () => {
         </div>
 
         {/* Input Area */}
-        <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl">
+        <div className="p-3 border-t border-slate-200/50 dark:border-slate-800/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md rounded-b-3xl">
 
           {/* Interim transcript live preview */}
           {interimTranscript && (

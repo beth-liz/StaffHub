@@ -111,7 +111,7 @@ const MainLayout = ({ children }) => {
   // Role-based Nav Items
   const navItems = user.role === 'Admin' 
     ? [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+        { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { name: 'Employee Directory', path: '/employees', icon: Users },
         { name: 'Leave Approvals', path: '/leaves', icon: History },
         { name: 'System Logs', path: '/audit-logs', icon: ShieldCheck },
@@ -120,7 +120,7 @@ const MainLayout = ({ children }) => {
         { name: 'Portal Settings', path: '/settings', icon: Settings },
       ]
     : [
-        { name: 'My Dashboard', path: '/', icon: LayoutDashboard },
+        { name: 'My Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { name: 'Apply For Leave', path: '/leaves/apply', icon: CalendarPlus },
         { name: 'My Leave History', path: '/leaves', icon: History },
         { name: 'My Profile', path: '/profile', icon: User },
@@ -132,6 +132,13 @@ const MainLayout = ({ children }) => {
   const avatarSrc = user.profilePhoto 
     ? `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}${user.profilePhoto}`
     : null;
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 18) return 'Good Afternoon';
+    return 'Good Evening';
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-200">
@@ -269,7 +276,7 @@ const MainLayout = ({ children }) => {
       {/* --- Main Workspace --- */}
       <div className="flex-1 flex flex-col md:pl-64 min-w-0">
         {/* Top Navbar */}
-        <header className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between transition-colors">
+        <header className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between transition-colors shadow-sm dark:shadow-slate-900/50">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -278,18 +285,28 @@ const MainLayout = ({ children }) => {
               <Menu size={20} />
             </button>
             
-            {/* Clock Widget */}
-            <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 px-3.5 py-1.5 rounded-full border border-slate-100 dark:border-slate-800/60">
-              <Clock size={12} className="text-brand-500" />
-              <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+            {/* Welcome Message */}
+            <div className="hidden md:block">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                {getGreeting()}, {user.firstName || user.name.split(' ')[0]}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Here's what's happening with your team today.
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-4 select-none">
+            {/* Clock Widget */}
+            <div className="hidden lg:flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 px-3.5 py-1.5 rounded-full border border-slate-100 dark:border-slate-800/60">
+              <Clock size={12} className="text-brand-500" />
+              <span>{new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+            </div>
+
             {/* Theme Toggle Button */}
             <button 
               onClick={toggleDarkMode}
-              className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-805 rounded-xl border border-slate-100 dark:border-slate-800/60 text-slate-500 dark:text-slate-400 transition-colors"
+              className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-800/60 text-slate-500 dark:text-slate-400 transition-colors"
             >
               {darkMode ? <Sun size={15} /> : <Moon size={15} />}
             </button>

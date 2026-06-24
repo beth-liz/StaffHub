@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
 
 // Auth pages (full-screen, no sidebar)
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import FirstLogin from './pages/FirstLogin';
 
@@ -32,12 +33,13 @@ function App() {
           <Router>
             <Routes>
               {/* ── Public Routes (no sidebar) ── */}
+              <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/first-login" element={<FirstLogin />} />
 
               {/* ── Protected Routes (inside sidebar layout) ── */}
               <Route
-                path="/"
+                path="/dashboard"
                 element={
                   <ProtectedRoute>
                     <MainLayout>
